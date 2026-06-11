@@ -1,0 +1,22 @@
+# Папки сборки во всех подпроектах
+build/
+*/build/
+
+# Временные файлы компилятора MSVC / Visual Studio
+.vs/
+out/
+*.exe
+*.obj
+*.pdb
+*.ilk
+
+# Артефакты сборщика Conan 1.x
+conan.lock
+conanbuildinfo.*
+conaninfo.txt
+graph_info.json
+
+# Системные файлы
+.DS_Store
+Thumbs.db
+EOF
