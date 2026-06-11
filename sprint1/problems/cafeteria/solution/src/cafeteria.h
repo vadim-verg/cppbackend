@@ -30,7 +30,7 @@ public:
             sausage_ = store_.GetSausage();
             bread_ = store_.GetBread();
 
-            // Передаем объект плиты
+            // Передаем оригинальную плиту, у которой мы принудительно оживили shared_from_this()
             sausage_->StartFry(*cooker_, net::bind_executor(strand_, [self = shared_from_this()] {
                 self->OnSausageFryingStarted();
             }));
@@ -116,33 +116,33 @@ class Cafeteria {
 public:
     using HotDogHandler = std::function<void(Result<HotDog>)>;
 
-    // Чтобы обойти ограничение precode и не падать на shared_from_this,
-    // мы инициализируем gas_cooker_ СНАЧАЛА в куче через make_shared,
-    // а оригинальное поле связываем с ним.
     explicit Cafeteria(net::io_context& io)
         : io_(io)
-        , cooker_holder_(std::make_shared<GasCooker>(io))
-        , gas_cooker_(*cooker_holder_) {} // Ссылка на объект внутри shared_ptr
+        , store_()
+        , gas_cooker_(io) 
+    {
+        cooker_ptr_ = std::shared_ptr<GasCooker>(&gas_cooker_, [](GasCooker*) {});
+    }
 
     void OrderHotDog(HotDogHandler handler) {
         int order_id = ++next_order_id_;
 
-        // Передаем настоящий легитимный shared_ptr на плиту, у которой РАБОТАЕТ shared_from_this()
+        // Передаем наш cooker_ptr_, внутри которого скрытый weak_ptr плиты теперь УСПЕШНО заполнен!
         auto order = std::make_shared<OrderContext>(
-            io_, store_, cooker_holder_, order_id, std::move(handler)
-            );
+            io_, store_, cooker_ptr_, order_id, std::move(handler)
+        );
         order->Start();
     }
 
 private:
     net::io_context& io_;
 
-    // Вспомогательный умный указатель ДОЛЖЕН быть объявлен Раньше, чем gas_cooker_
-    std::shared_ptr<GasCooker> cooker_holder_;
-
-    // Оригинальные поля из precode (не меняем их типы, чтобы не сломать компиляцию)
+    // Оригинальные поля из precode (типы и порядок строго сохранены)
     Store store_;
-    GasCooker& gas_cooker_; // Мы превратили её в ссылку на cooker_holder_, что легитимно для C++
+    GasCooker gas_cooker_;
+
+    // Умный указатель для безопасной передачи плиты в OrderContext
+    std::shared_ptr<GasCooker> cooker_ptr_;
 
     std::atomic<int> next_order_id_{0};
 };
