@@ -10,6 +10,23 @@ namespace beast = boost::beast;
 namespace http = beast::http;
 using namespace std::literals;
 
+boost::json::object SerializeMap(const model::Map& map);
+
+struct Endpoints {
+
+    // Пути
+    static constexpr std::string_view Maps = "/api/v1/maps"sv;
+    static constexpr std::string_view MapsPrefix = "/api/v1/maps/"sv;
+
+    // Метод для извлечения ID карты
+    static std::string_view ExtractMapId(std::string_view target) {
+        if (target.starts_with(MapsPrefix)) {
+            return target.substr(MapsPrefix.size());
+        }
+        return {};
+    }
+};
+
 class RequestHandler {
 public:
     explicit RequestHandler(model::Game& game)
@@ -29,11 +46,10 @@ public:
             return;
         }
 
-        if (target == "/api/v1/maps"sv) {
+        if (target == Endpoints::Maps) {
             send(MakeMapListResponse(req));
         }
-        else if (target.starts_with("/api/v1/maps/"sv)) {
-            std::string_view map_id = target.substr("/api/v1/maps/"sv.size());
+        else if (std::string_view map_id = Endpoints::ExtractMapId(target); !map_id.empty()) {
             send(MakeMapResponse(req, map_id));
         }
         else {
@@ -51,7 +67,7 @@ private:
         std::string_view body)
     {
         http::response<http::string_body> res(status, req.version());
-        res.set(http::field::content_type, "application/json"); // Без sv для MSVC
+        res.set(http::field::content_type, "application/json");
         res.body() = body;
         res.prepare_payload();
         res.keep_alive(req.keep_alive());
@@ -73,10 +89,14 @@ private:
 
     // Информация по конкретной карте
     template <typename Body, typename Allocator>
-    http::response<http::string_body> MakeMapResponse(const http::request<Body, http::basic_fields<Allocator>>& req, std::string_view map_id) {
+    http::response<http::string_body> MakeMapResponse(
+        const http::request<Body, http::basic_fields<Allocator>>& req,
+        std::string_view map_id)
+    {
         model::Map::Id id{std::string(map_id)};
         const auto* map = game_.FindMap(id);
 
+        // Обработка ошибки
         if (!map) {
             boost::json::object error_obj;
             error_obj["code"] = "mapNotFound";
@@ -84,52 +104,7 @@ private:
             return MakeBaseResponse(req, http::status::not_found, boost::json::serialize(error_obj));
         }
 
-        boost::json::object json_map;
-        json_map["id"] = *map->GetId();
-        json_map["name"] = map->GetName();
-
-        // Дороги
-        boost::json::array json_roads;
-        for (const auto& road : map->GetRoads()) {
-            boost::json::object json_road;
-            auto start = road.GetStart();
-            json_road["x0"] = start.x;
-            json_road["y0"] = start.y;
-            if (road.IsHorizontal()) {
-                json_road["x1"] = road.GetEnd().x;
-            } else {
-                json_road["y1"] = road.GetEnd().y;
-            }
-            json_roads.push_back(std::move(json_road));
-        }
-        json_map["roads"] = std::move(json_roads);
-
-        // Здания
-        boost::json::array json_buildings;
-        for (const auto& building : map->GetBuildings()) {
-            boost::json::object json_build;
-            auto bounds = building.GetBounds();
-            json_build["x"] = bounds.position.x;
-            json_build["y"] = bounds.position.y;
-            json_build["w"] = bounds.size.width;
-            json_build["h"] = bounds.size.height;
-            json_buildings.push_back(std::move(json_build));
-        }
-        json_map["buildings"] = std::move(json_buildings);
-
-        // Офисы
-        boost::json::array json_offices;
-        for (const auto& office : map->GetOffices()) {
-            boost::json::object json_office;
-            json_office["id"] = *office.GetId();
-            json_office["x"] = office.GetPosition().x;
-            json_office["y"] = office.GetPosition().y;
-            json_office["offsetX"] = office.GetOffset().dx;
-            json_office["offsetY"] = office.GetOffset().dy;
-            json_offices.push_back(std::move(json_office));
-        }
-        json_map["offices"] = std::move(json_offices);
-
+        boost::json::object json_map = SerializeMap(*map);
         return MakeBaseResponse(req, http::status::ok, boost::json::serialize(json_map));
     }
 
@@ -147,7 +122,7 @@ private:
         error_obj["code"] = "invalidMethod";
         error_obj["message"] = "Invalid method";
         auto res = MakeBaseResponse(req, http::status::method_not_allowed, boost::json::serialize(error_obj));
-        res.set(http::field::allow, "GET"); // Без sv для MSVC
+        res.set(http::field::allow, "GET");
         return res;
     }
 };

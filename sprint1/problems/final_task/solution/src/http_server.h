@@ -34,7 +34,6 @@ protected:
         bool close = response.need_eof();
         auto safe_response = std::make_shared<http::response<Body, Fields>>(std::move(response));
         auto self = GetSharedThis();
-
         http::async_write(
             stream_,
             *safe_response,
@@ -42,60 +41,19 @@ protected:
                 safe_response.reset();
                 self->OnWrite(close, ec, bytes_written);
             }
-            );
+        );
     }
 
 public:
-    void Run() {
-        Read();
-    }
-
+    void Run();
     SessionBase(const SessionBase&) = delete;
     SessionBase& operator=(const SessionBase&) = delete;
 
 private:
-    void Read() {
-        request_ = {};
-        stream_.expires_after(std::chrono::seconds(30));
-
-        http::async_read(
-            stream_,
-            buffer_,
-            request_,
-            beast::bind_front_handler(&SessionBase::OnRead, GetSharedThis())
-            );
-    }
-
-    void OnRead(beast::error_code ec, [[maybe_unused]] std::size_t bytes_read) {
-        using namespace std::literals;
-        if (ec == http::error::end_of_stream) {
-            Close();
-            return;
-        }
-        if (ec) {
-            ReportError(ec, "read"sv);
-            return;
-        }
-        HandleRequest(std::move(request_));
-    }
-
-    void OnWrite(bool close, beast::error_code ec, [[maybe_unused]] std::size_t bytes_written) {
-        using namespace std::literals;
-        if (ec) {
-            ReportError(ec, "write"sv);
-            return;
-        }
-        if (close) {
-            Close();
-            return;
-        }
-        Read();
-    }
-
-    void Close() {
-        beast::error_code ec;
-        stream_.socket().shutdown(tcp::socket::shutdown_send, ec);
-    }
+    void Read();
+    void OnRead(beast::error_code ec, [[maybe_unused]] std::size_t bytes_read);
+    void OnWrite(bool close, beast::error_code ec, [[maybe_unused]] std::size_t bytes_written);
+    void Close();
 
     virtual void HandleRequest(HttpRequest&& request) = 0;
     virtual std::shared_ptr<SessionBase> GetSharedThis() = 0;
@@ -112,7 +70,8 @@ public:
     template <typename Handler>
     Session(tcp::socket&& socket, Handler&& request_handler)
         : SessionBase(std::move(socket))
-        , request_handler_(std::forward<Handler>(request_handler)) {}
+        , request_handler_(std::forward<Handler>(request_handler))
+    {}
 
 private:
     std::shared_ptr<SessionBase> GetSharedThis() override {
@@ -135,8 +94,8 @@ public:
     Listener(net::io_context& ioc, const tcp::endpoint& endpoint, Handler&& request_handler)
         : ioc_(ioc)
         , acceptor_(net::make_strand(ioc))
-        , request_handler_(std::forward<Handler>(request_handler)) {
-
+        , request_handler_(std::forward<Handler>(request_handler))
+    {
         acceptor_.open(endpoint.protocol());
         acceptor_.set_option(net::socket_base::reuse_address(true));
         acceptor_.bind(endpoint);
@@ -148,6 +107,7 @@ public:
     }
 
 private:
+
     void DoAccept() {
         acceptor_.async_accept(
             net::make_strand(ioc_),

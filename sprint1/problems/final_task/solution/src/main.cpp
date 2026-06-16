@@ -37,8 +37,8 @@ int main(int argc, const char* argv[]) {
         return EXIT_FAILURE;
     }
     try {
-        // Загружаем карту из файла        
-	model::Game game = json_loader::LoadGame(argv[1]);
+        // Загружаем карту из файла
+        model::Game game = json_loader::LoadGame(argv[1]);
 
         // Инициализируем io_context
         const unsigned num_threads = std::thread::hardware_concurrency();
@@ -46,8 +46,8 @@ int main(int argc, const char* argv[]) {
 
         // Создаём обработчик HTTP-запросов и связываем его с моделью игры
         http_handler::RequestHandler handler{game};
-       
-	const auto address = net::ip::make_address("0.0.0.0");
+
+        const auto address = net::ip::make_address("0.0.0.0");
         const unsigned short port = 8080;
 
         http_server::ServeHttp(ioc, {address, port}, [&handler](auto&& req, auto&& send) {
