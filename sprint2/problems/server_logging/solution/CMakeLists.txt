@@ -16,7 +16,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if(MSVC)
     add_compile_options(/W4 /WX /permissive-)
 else()
-    add_compile_options(-Wall -Wextra -Werror)
+    # Оставляем информативные предупреждения, но не прерываем сборку из-за багов Boost
+    add_compile_options(-Wall -Wextra)
 endif()
 
 # Интеграция с ОДИНОЧНЫМ генератором Conan (conanbuildinfo.cmake)
