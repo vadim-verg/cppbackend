@@ -1,0 +1,28 @@
+# Папки сборки и кэша компиляторов
+build/
+build-*/
+CMakeFiles/
+CMakeCache.txt
+*.cmake
+
+# Зависимости и локальные папки пакеров
+.conan/
+conanbuildinfo.cmake
+conaninfo.txt
+conanvars.txt
+graph_info.json
+
+# Настройки сред разработки (Qt Creator, VS, VS Code)
+*.pro.user
+.vscode/
+.idea/
+*.user
+*.vcxproj
+*.filters
+*.sln
+.vs/
+
+# Исполняемые файлы и логи
+*.exe
+*.log
+bin/
