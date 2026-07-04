@@ -1,27 +1,28 @@
 cmake_minimum_required(VERSION 3.15)
 project(game_server CXX)
 
-# Включаем макросы статического логгера для ВСЕХ платформ (и Windows, и Linux),
-# так как Conan в Docker-контейнере Практикума поставляет статический Boost.
-add_compile_definitions(BOOST_LOG_USE_STATIC_LIBS)
-add_compile_definitions(BOOST_ALL_NO_LIB)
-
+# Конфигурация макросов
 if(WIN32)
     add_compile_definitions(_WIN32_WINNT=0x0A00)
+    add_compile_definitions(BOOST_LOG_USE_STATIC_LIBS)
+    add_compile_definitions(BOOST_ALL_NO_LIB)
+else()
+    # ИСПРАВЛЕНИЕ ДЛЯ LINUX: Запрещаем автолинковку внутри заголовков Boost
+    add_compile_definitions(BOOST_LOG_NO_LIB)
 endif()
 
-# Стандарт C++20, необходимый для Яндекс Практикума
+# Стандарт C++20
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Строгие флаги компиляции (убрали -Werror для Linux)
+# Предупреждения компилятора
 if(MSVC)
     add_compile_options(/W4 /WX /permissive-)
 else()
     add_compile_options(-Wall -Wextra)
 endif()
 
-# Интеграция с генераторами Conan (подключаем базовые конфигураторы мульти-сборки)
+# Интеграция с Conan
 if(EXISTS "${CMAKE_BINARY_DIR}/conanbuildinfo_multi.cmake")
     include("${CMAKE_BINARY_DIR}/conanbuildinfo_multi.cmake")
 elseif(EXISTS "${CMAKE_BINARY_DIR}/conanbuildinfo.cmake")
@@ -30,16 +31,12 @@ else()
     message(FATAL_ERROR "Conan build info not found! Run 'conan install' first.")
 endif()
 
-# Вызываем conan_basic_setup без параметров, 
-# чтобы Конан сам корректно разложил зависимости для Release/Debug конфигураций 
-# и инициализировал макрос conan_find_apple_frameworks
 conan_basic_setup()
 
-# ИСПРАВЛЕНИЕ ДЛЯ LINUX: Явно находим системный пакет потоков, 
-# чтобы таргет Threads::Threads стал доступен линкеру
+# Находим системные потоки Linux
 find_package(Threads REQUIRED)
 
-# Таргет сборки (все исходники задания)
+# Цель сборки
 add_executable(game_server
     src/api_handler.cpp
     src/api_handler.h
@@ -61,27 +58,23 @@ add_executable(game_server
     src/tagged.h
 )
 
-# Линковка библиотек в зависимости от платформы
+# Линковка
 if(WIN32)
     target_link_libraries(game_server PRIVATE ${CONAN_LIBS} ws2_32 mswsock)
 else()
-    # ИСПРАВЛЕНИЕ: Явно подключаем таргеты статических библиотек Boost, 
-    # которые Conan скачивает в контейнер, но не импортирует в глобальную переменную.
-    # Префикс CONAN_PKG:: указывает CMake брать именно те файлы, которые принес Conan.
+    # ИСПРАВЛЕНИЕ: Передаем чистые имена библиотек Boost.
+    # Поскольку conan_basic_setup() уже добавил папки Конана в пути поиска линкера,
+    # он без труда найдет файлы libboost_log.a и libboost_thread.a на сервере.
     target_link_libraries(game_server PRIVATE 
         ${CONAN_LIBS}
-        CONAN_PKG::boost_log
-        CONAN_PKG::boost_thread
-        CONAN_PKG::boost_system
-        CONAN_PKG::boost_filesystem
+        boost_log
+        boost_thread
         Threads::Threads
     )
 endif()
 
-# Пути поиска заголовочных файлов внутри src
 target_include_directories(game_server PRIVATE src)
 
-# Папка вывода готового скомпилированного файла
 set_target_properties(game_server PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
