@@ -1,13 +1,13 @@
 cmake_minimum_required(VERSION 3.15)
 project(game_server CXX)
 
-# Конфигурация макросов
+# Конфигурация макросов для Boost.Log
 if(WIN32)
     add_compile_definitions(_WIN32_WINNT=0x0A00)
     add_compile_definitions(BOOST_LOG_USE_STATIC_LIBS)
     add_compile_definitions(BOOST_ALL_NO_LIB)
 else()
-    # ИСПРАВЛЕНИЕ ДЛЯ LINUX: Запрещаем автолинковку внутри заголовков Boost
+    # Запрещаем автолинковку внутри заголовков Boost на Linux
     add_compile_definitions(BOOST_LOG_NO_LIB)
 endif()
 
@@ -31,7 +31,9 @@ else()
     message(FATAL_ERROR "Conan build info not found! Run 'conan install' first.")
 endif()
 
-conan_basic_setup()
+# ИСПРАВЛЕНИЕ: Добавляем ключевое слово TARGETS. 
+# Это заставляет Конан создать цели CONAN_PKG::boost_log, CONAN_PKG::boost_thread и т.д.
+conan_basic_setup(TARGETS)
 
 # Находим системные потоки Linux
 find_package(Threads REQUIRED)
@@ -58,17 +60,17 @@ add_executable(game_server
     src/tagged.h
 )
 
-# Линковка
+# Линковка через официальные таргеты Conan
 if(WIN32)
-    target_link_libraries(game_server PRIVATE ${CONAN_LIBS} ws2_32 mswsock)
+    # На Windows линкуем глобальную цель и сокеты
+    target_link_libraries(game_server PRIVATE CONAN_PKG::boost ws2_32 mswsock)
 else()
-    # ИСПРАВЛЕНИЕ: Передаем чистые имена библиотек Boost.
-    # Поскольку conan_basic_setup() уже добавил папки Конана в пути поиска линкера,
-    # он без труда найдет файлы libboost_log.a и libboost_thread.a на сервере.
+    # На Linux явно привязываем Конан-цели для логов и потоков.
+    # Теперь CMake 100% знает, где они лежат, так как conan_basic_setup(TARGETS) их объявил!
     target_link_libraries(game_server PRIVATE 
-        ${CONAN_LIBS}
-        boost_log
-        boost_thread
+        CONAN_PKG::boost
+        CONAN_PKG::boost_log
+        CONAN_PKG::boost_thread
         Threads::Threads
     )
 endif()
