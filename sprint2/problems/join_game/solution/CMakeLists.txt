@@ -1,14 +1,13 @@
 cmake_minimum_required(VERSION 3.15)
 project(game_server CXX)
 
-# Конфигурация макросов в зависимости от ОС
+# Включаем макросы статического логгера для ВСЕХ платформ (и Windows, и Linux),
+# так как Conan в Docker-контейнере Практикума поставляет статический Boost.
+add_compile_definitions(BOOST_LOG_USE_STATIC_LIBS)
+add_compile_definitions(BOOST_ALL_NO_LIB)
+
 if(WIN32)
     add_compile_definitions(_WIN32_WINNT=0x0A00)
-    add_compile_definitions(BOOST_LOG_USE_STATIC_LIBS)
-    add_compile_definitions(BOOST_ALL_NO_LIB)
-else()
-    # ИСПРАВЛЕНИЕ ДЛЯ LINUX: Явно включаем поддержку многопоточности в Boost
-    add_compile_definitions(BOOST_LOG_DYN_LINK)
 endif()
 
 # Стандарт C++20, необходимый для Яндекс Практикума
