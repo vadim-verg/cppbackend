@@ -22,15 +22,18 @@ else()
     add_compile_options(-Wall -Wextra)
 endif()
 
-# Интеграция с одиночным генератором Conan (conanbuildinfo.cmake)
-if(EXISTS "${CMAKE_BINARY_DIR}/conanbuildinfo.cmake")
+# Интеграция с генераторами Conan (ищем все возможные варианты файлов)
+if(EXISTS "${CMAKE_BINARY_DIR}/conanbuildinfo_release.cmake")
+    include("${CMAKE_BINARY_DIR}/conanbuildinfo_release.cmake")
+elseif(EXISTS "${CMAKE_BINARY_DIR}/conanbuildinfo_multi.cmake")
+    include("${CMAKE_BINARY_DIR}/conanbuildinfo_multi.cmake")
+elseif(EXISTS "${CMAKE_BINARY_DIR}/conanbuildinfo.cmake")
     include("${CMAKE_BINARY_DIR}/conanbuildinfo.cmake")
 else()
     message(FATAL_ERROR "Conan build info not found! Run 'conan install' first.")
 endif()
 
 conan_basic_setup()
-
 # Таргет сборки (все исходники задания)
 add_executable(game_server
     src/api_handler.cpp
