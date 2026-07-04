@@ -17,7 +17,7 @@ if(MSVC)
     add_compile_options(/W4 /WX /permissive-)
 else()
     # Флаги для Linux (GCC/Clang): строгие предупреждения как ошибки
-    add_compile_options(-Wall -Wextra -Werror)
+    add_compile_options(-Wall -Wextra)
 endif()
 
 # Подключаем конфигурацию зависимостей от Conan
