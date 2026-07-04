@@ -36,6 +36,10 @@ endif()
 # и инициализировал макрос conan_find_apple_frameworks
 conan_basic_setup()
 
+# ИСПРАВЛЕНИЕ ДЛЯ LINUX: Явно находим системный пакет потоков, 
+# чтобы таргет Threads::Threads стал доступен линкеру
+find_package(Threads REQUIRED)
+
 # Таргет сборки (все исходники задания)
 add_executable(game_server
     src/api_handler.cpp
@@ -62,9 +66,8 @@ add_executable(game_server
 if(WIN32)
     target_link_libraries(game_server PRIVATE ${CONAN_LIBS} ws2_32 mswsock)
 else()
-    # ИСПРАВЛЕНИЕ ДЛЯ LINUX: Добавляем системную библиотеку потоков pthread, 
-    # так как boost_log под Linux завязан на неё жестко
-    target_link_libraries(game_server PRIVATE ${CONAN_LIBS} Threads::Threads pthread)
+    # На Linux связываем все либы Конана и найденные системные потоки
+    target_link_libraries(game_server PRIVATE ${CONAN_LIBS} Threads::Threads)
 endif()
 
 # Пути поиска заголовочных файлов внутри src
