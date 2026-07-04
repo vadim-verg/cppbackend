@@ -122,7 +122,7 @@ void operator()(http::request<Body, http::basic_fields<Allocator>>&& req, Send&&
             send(MakeBadRequestResponse(req));
         }
         return;
-    } // <-- Убедитесь, что эта скобка закрывает блок if (target_sv.starts_with("/api/"))
+    }
 
     // 4. МАРШРУТИЗАЦИЯ СТАТИКИ (Если запрос не пошёл в /api/)
     std::string_view req_path = target_sv;
@@ -132,9 +132,6 @@ void operator()(http::request<Body, http::basic_fields<Allocator>>&& req, Send&&
     }
 
     std::filesystem::path absolute_file_path = static_path_ / std::filesystem::path(req_path);
-
-// КРИТИЧЕСКАЯ ОТЛАДКА: Выводим в лог путь, который пытается открыть сервер
-    std::cout << "DEBUG: Trying to open static file at: " << absolute_file_path.string() << std::endl;
 
     // Если запрашивают каталог (например, просто /), добавляем index.html
     if (std::filesystem::is_directory(absolute_file_path)) {
