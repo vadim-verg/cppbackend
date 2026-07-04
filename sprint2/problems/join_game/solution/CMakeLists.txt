@@ -61,12 +61,21 @@ add_executable(game_server
     src/tagged.h
 )
 
-# Линковка библиотек
+# Линковка библиотек в зависимости от платформы
 if(WIN32)
     target_link_libraries(game_server PRIVATE ${CONAN_LIBS} ws2_32 mswsock)
 else()
-    # На Linux связываем все либы Конана и найденные системные потоки
-    target_link_libraries(game_server PRIVATE ${CONAN_LIBS} Threads::Threads)
+    # ИСПРАВЛЕНИЕ: Явно подключаем таргеты статических библиотек Boost, 
+    # которые Conan скачивает в контейнер, но не импортирует в глобальную переменную.
+    # Префикс CONAN_PKG:: указывает CMake брать именно те файлы, которые принес Conan.
+    target_link_libraries(game_server PRIVATE 
+        ${CONAN_LIBS}
+        CONAN_PKG::boost_log
+        CONAN_PKG::boost_thread
+        CONAN_PKG::boost_system
+        CONAN_PKG::boost_filesystem
+        Threads::Threads
+    )
 endif()
 
 # Пути поиска заголовочных файлов внутри src
