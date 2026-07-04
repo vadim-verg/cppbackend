@@ -56,16 +56,26 @@ add_executable(game_server
 
 # Линковка библиотек в зависимости от платформы
 if(WIN32)
+    # На Windows Conan управляет всем списком через ${CONAN_LIBS}
     target_link_libraries(game_server PRIVATE ${CONAN_LIBS} ws2_32 mswsock)
 else()
-    # На Linux линкуем только библиотеки, предоставленные Conan (Boost и др.)
-    target_link_libraries(game_server PRIVATE ${CONAN_LIBS})
+    # ИСПРАВЛЕНИЕ ДЛЯ LINUX: Явно указываем линкеру подключить модули логирования и потоков,
+    # так как одиночный генератор cmake в Conan на Linux иногда не включает их в общий список автоматически.
+    target_link_libraries(game_server PRIVATE 
+        ${CONAN_LIBS}
+        boost_log
+        boost_log_setup
+        boost_thread
+        boost_system
+        boost_filesystem
+        pthread
+    )
 endif()
 
 # Указываем, что папка src является корневой для заголовочных файлов
 target_include_directories(game_server PRIVATE src)
 
-# Задаем директорию, куда сохранится готовый бинарник сервера
+# Задаем директорию вывода готового бинарника
 set_target_properties(game_server PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
