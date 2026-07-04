@@ -11,7 +11,7 @@ namespace app {
 
 class Player {
 public:
-    Player(uint32_t id, const std::string& name, const std::string& map_id, std::shared_ptr<model::Dog> dog)
+    Player(uint32_t id, const std::string& name, const std::string& map_id, std::shared_ptr<model::Dog> dog = nullptr)
         : id_(id)
         , name_(name)
         , map_id_(map_id)
