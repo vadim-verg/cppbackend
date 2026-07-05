@@ -169,102 +169,76 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
     };
 
     const auto& all_roads = map.GetRoads();
-
-    auto is_safe = [&](const model::Point2D& pos) {
-        for (const auto& road : all_roads) {
-            if (IsPointOnRoad(pos, GetRoadBounds(road))) {
-                return true;
-            }
-        }
-        return false;
-    };
-
-    // Если целевая траектория полностью безопасна — перемещаем без ограничений
-    if (is_safe(p_target)) {
-        dog.SetPosition(p_target);
-        return;
-    }
-
     bool hit_boundary = false;
 
-    // ИСПРАВЛЕНИЕ: Строим непрерывную цепочку коридоров, расширяя границы относительно текущего экстремума!
-    if (v.ux > 0) { // Вправо (R)
+    if (v.ux != 0.0) { // Движение по горизонтали (L / R)
+        double min_x = p0.x;
         double max_x = p0.x;
+
+        // 1. Сначала находим границы дорог, на которых пёс стоит прямо сейчас
+        for (const auto& road : all_roads) {
+            auto bounds = GetRoadBounds(road);
+            if (p0.y >= bounds.min_y && p0.y <= bounds.max_y && p0.x >= bounds.min_x && p0.x <= bounds.max_x) {
+                min_x = std::min(min_x, bounds.min_x);
+                max_x = std::max(max_x, bounds.max_x);
+            }
+        }
+
+        // 2. Итеративно расширяем границы за счёт любых дорог, которые пересекаются с нашим интервалом [min_x, max_x]
         bool expanded = true;
         while (expanded) {
             expanded = false;
             for (const auto& road : all_roads) {
                 auto bounds = GetRoadBounds(road);
                 if (p0.y >= bounds.min_y && p0.y <= bounds.max_y) {
-                    // Новая дорога должна стыковаться с текущей максимальной точкой max_x
-                    if (bounds.min_x <= max_x && bounds.max_x > max_x) {
-                        max_x = bounds.max_x;
-                        expanded = true;
+                    // Если дорога перекрывает наш текущий легальный отрез
+                    if (bounds.min_x <= max_x && bounds.max_x >= min_x) {
+                        if (bounds.min_x < min_x) { min_x = bounds.min_x; expanded = true; }
+                        if (bounds.max_x > max_x) { max_x = bounds.max_x; expanded = true; }
                     }
                 }
             }
         }
-        if (p_target.x >= max_x) {
+
+        // 3. Ограничиваем целевую точку
+        if (v.ux > 0 && p_target.x >= max_x) {
             p_target.x = max_x;
             hit_boundary = true;
-        }
-    }
-    else if (v.ux < 0) { // Влево (L)
-        double min_x = p0.x;
-        bool expanded = true;
-        while (expanded) {
-            expanded = false;
-            for (const auto& road : all_roads) {
-                auto bounds = GetRoadBounds(road);
-                if (p0.y >= bounds.min_y && p0.y <= bounds.max_y) {
-                    if (bounds.max_x >= min_x && bounds.min_x < min_x) {
-                        min_x = bounds.min_x;
-                        expanded = true;
-                    }
-                }
-            }
-        }
-        if (p_target.x <= min_x) {
+        } else if (v.ux < 0 && p_target.x <= min_x) {
             p_target.x = min_x;
             hit_boundary = true;
         }
     }
-    else if (v.uy > 0) { // Вниз (D)
+    else if (v.uy != 0.0) { // Движение по вертикали (U / D)
+        double min_y = p0.y;
         double max_y = p0.y;
+
+        for (const auto& road : all_roads) {
+            auto bounds = GetRoadBounds(road);
+            if (p0.x >= bounds.min_x && p0.x <= bounds.max_x && p0.y >= bounds.min_y && p0.y <= bounds.max_y) {
+                min_y = std::min(min_y, bounds.min_y);
+                max_y = std::max(max_y, bounds.max_y);
+            }
+        }
+
         bool expanded = true;
         while (expanded) {
             expanded = false;
             for (const auto& road : all_roads) {
                 auto bounds = GetRoadBounds(road);
                 if (p0.x >= bounds.min_x && p0.x <= bounds.max_x) {
-                    if (bounds.min_y <= max_y && bounds.max_y > max_y) {
-                        max_y = bounds.max_y;
-                        expanded = true;
+                    if (bounds.min_y <= max_y && bounds.max_y >= min_y) {
+                        if (bounds.min_y < min_y) { min_y = bounds.min_y; expanded = true; }
+                        if (bounds.max_y > max_y) { max_y = bounds.max_y; expanded = true; }
                     }
                 }
             }
         }
-        if (p_target.y >= max_y) {
+
+        if (v.uy > 0 && p_target.y >= max_y) {
             p_target.y = max_y;
             hit_boundary = true;
-        }
-    }
-    else if (v.uy < 0) { // Вверх (U)
-        double min_y = p0.y;
-        bool expanded = true;
-        while (expanded) {
-            expanded = false;
-            for (const auto& road : all_roads) {
-                auto bounds = GetRoadBounds(road);
-                if (p0.x >= bounds.min_x && p0.x <= bounds.max_x) {
-                    if (bounds.max_y >= min_y && bounds.min_y < min_y) {
-                        min_y = bounds.min_y;
-                        expanded = true;
-                    }
-                }
-            }
-        }
-        if (p_target.y <= min_y) {
+        } else if (v.uy < 0 && p_target.y <= min_y) {
             p_target.y = min_y;
             hit_boundary = true;
         }
