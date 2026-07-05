@@ -194,8 +194,9 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
             expanded = false;
             for (const auto& road : all_roads) {
                 auto bounds = GetRoadBounds(road);
-                if (p0.y >= bounds.min_y && p0.y <= bounds.max_y &&
-                    max_x >= bounds.min_x && max_x <= bounds.max_x) {
+                bool y_is_valid = (p0.y >= bounds.min_y && p0.y <= bounds.max_y) ||
+                                  (p_target.y >= bounds.min_y && p_target.y <= bounds.max_y);
+                if (y_is_valid && max_x >= bounds.min_x && max_x <= bounds.max_x) {
                     if (bounds.max_x > max_x) {
                         max_x = bounds.max_x;
                         expanded = true;
@@ -215,8 +216,9 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
             expanded = false;
             for (const auto& road : all_roads) {
                 auto bounds = GetRoadBounds(road);
-                if (p0.y >= bounds.min_y && p0.y <= bounds.max_y &&
-                    min_x >= bounds.min_x && min_x <= bounds.max_x) {
+                bool y_is_valid = (p0.y >= bounds.min_y && p0.y <= bounds.max_y) ||
+                                  (p_target.y >= bounds.min_y && p_target.y <= bounds.max_y);
+                if (y_is_valid && min_x >= bounds.min_x && min_x <= bounds.max_x) {
                     if (bounds.min_x < min_x) {
                         min_x = bounds.min_x;
                         expanded = true;
@@ -236,8 +238,9 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
             expanded = false;
             for (const auto& road : all_roads) {
                 auto bounds = GetRoadBounds(road);
-                if (p0.x >= bounds.min_x && p0.x <= bounds.max_x &&
-                    max_y >= bounds.min_y && max_y <= bounds.max_y) {
+                bool x_is_valid = (p0.x >= bounds.min_x && p0.x <= bounds.max_x) ||
+                                  (p_target.x >= bounds.min_x && p_target.x <= bounds.max_x);
+                if (x_is_valid && max_y >= bounds.min_y && max_y <= bounds.max_y) {
                     if (bounds.max_y > max_y) {
                         max_y = bounds.max_y;
                         expanded = true;
@@ -257,8 +260,9 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
             expanded = false;
             for (const auto& road : all_roads) {
                 auto bounds = GetRoadBounds(road);
-                if (p0.x >= bounds.min_x && p0.x <= bounds.max_x &&
-                    min_y >= bounds.min_y && min_y <= bounds.max_y) {
+                bool x_is_valid = (p0.x >= bounds.min_x && p0.x <= bounds.max_x) ||
+                                  (p_target.x >= bounds.min_x && p_target.x <= bounds.max_x);
+                if (x_is_valid && min_y >= bounds.min_y && min_y <= bounds.max_y) {
                     if (bounds.min_y < min_y) {
                         min_y = bounds.min_y;
                         expanded = true;
