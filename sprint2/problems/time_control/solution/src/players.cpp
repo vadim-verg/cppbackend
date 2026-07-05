@@ -163,42 +163,37 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
         return;
     }
 
+    const auto& all_roads = map.GetRoads();
+
+    for (const auto& road : all_roads) {
+        auto bounds = GetRoadBounds(road);
+        if (p0.x >= bounds.min_x && p0.x <= bounds.max_x && p0.y >= bounds.min_y && p0.y <= bounds.max_y) {
+            if (v.ux != 0.0 && road.IsHorizontal()) {
+                p0.y = static_cast<double>(road.GetStart().y);
+                break;
+            }
+            if (v.uy != 0.0 && road.IsVertical()) {
+                p0.x = static_cast<double>(road.GetStart().x);
+                break;
+            }
+        }
+    }
+
     model::Point2D p_target = {
         p0.x + v.ux * delta_time_seconds,
         p0.y + v.uy * delta_time_seconds
     };
 
-    const auto& all_roads = map.GetRoads();
-
-    auto is_safe = [&](const model::Point2D& pos) {
-        for (const auto& road : all_roads) {
-            if (IsPointOnRoad(pos, GetRoadBounds(road))) {
-                return true;
-            }
-        }
-        return false;
-    };
-
-    // Если вся целевая точка полностью легальна — перемещаем без ограничений
-    if (is_safe(p_target)) {
-        dog.SetPosition(p_target);
-        return;
-    }
-
     bool hit_boundary = false;
 
-    // Алгоритм точечного коридорного скольжения:
-    // Собираем непрерывную линию дорог СТРОГО вдоль вектора движения пса
     if (v.ux > 0) { // Движение на восток (R)
         double max_x = p0.x;
-        // Находим край текущей дороги пса
         for (const auto& road : all_roads) {
             auto bounds = GetRoadBounds(road);
             if (p0.y >= bounds.min_y && p0.y <= bounds.max_y && p0.x >= bounds.min_x && p0.x <= bounds.max_x) {
                 max_x = std::max(max_x, bounds.max_x);
             }
         }
-        // Итеративно расширяем вправо только за счет дорог, которые стыкуются по оси движения
         bool expanded = true;
         while (expanded) {
             expanded = false;
