@@ -170,115 +170,75 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
 
     const auto& all_roads = map.GetRoads();
 
-    auto is_safe = [&](const model::Point2D& pos) {
-        for (const auto& road : all_roads) {
-            if (IsPointOnRoad(pos, GetRoadBounds(road))) {
-                return true;
-            }
-        }
-        return false;
-    };
+    // 1. Вычисляем непрерывный интервал дорог, доступный из текущей точки p0 вдоль вектора движения
+    double min_x = p0.x;
+    double max_x = p0.x;
+    double min_y = p0.y;
+    double max_y = p0.y;
 
-    // Если целевая точка легальна, просто перемещаем пса (работает для перекрестков и микро-шагов)
-    if (is_safe(p_target)) {
-        dog.SetPosition(p_target);
-        return;
+    // Сначала собираем все дороги, которые покрывают стартовую точку пса
+    std::vector<RoadBounds> active_roads;
+    for (const auto& road : all_roads) {
+        auto bounds = GetRoadBounds(road);
+        if (p0.x >= bounds.min_x && p0.x <= bounds.max_x &&
+            p0.y >= bounds.min_y && p0.y <= bounds.max_y) {
+            active_roads.push_back(bounds);
+            min_x = std::min(min_x, bounds.min_x);
+            max_x = std::max(max_x, bounds.max_x);
+            min_y = std::min(min_y, bounds.min_y);
+            max_y = std::max(max_y, bounds.max_y);
+        }
     }
 
-    bool hit_boundary = false;
+    // Итеративно добавляем только те дороги, которые СТЫКУЮТСЯ (пересекаются) с уже найденной зоной
+    bool expanded = true;
+    while (expanded) {
+        expanded = false;
+        for (const auto& road : all_roads) {
+            auto bounds = GetRoadBounds(road);
 
-    // Ищем максимальные границы движения по цепочке дорог,
-    // учитывая, что пёс может стоять со смещением на любой из пересекающихся дорог
-    if (v.ux > 0) { // Вправо (R)
-        double max_x = p0.x;
-        bool expanded = true;
-        while (expanded) {
-            expanded = false;
-            for (const auto& road : all_roads) {
-                auto bounds = GetRoadBounds(road);
-                // Проверяем, подходит ли дорога по высоте Y для текущего положения
-                if (p0.y >= bounds.min_y && p0.y <= bounds.max_y) {
-                    if (max_x >= bounds.min_x && max_x <= bounds.max_x) {
-                        if (bounds.max_x > max_x) {
-                            max_x = bounds.max_x;
-                            expanded = true;
-                        }
-                    }
-                }
+            // Проверяем пересечение прямоугольников: стыкуется ли дорога с нашей текущей разрешенной зоной
+            bool intersects = (bounds.min_x <= max_x && bounds.max_x >= min_x) &&
+                              (bounds.min_y <= max_y && bounds.max_y >= min_y);
+
+            if (intersects) {
+                if (bounds.min_x < min_x) { min_x = bounds.min_x; expanded = true; }
+                if (bounds.max_x > max_x) { max_x = bounds.max_x; expanded = true; }
+                if (bounds.min_y < min_y) { min_y = bounds.min_y; expanded = true; }
+                if (bounds.max_y > max_y) { max_y = bounds.max_y; expanded = true; }
             }
         }
+    }
+
+    // 2. Теперь ограничиваем движение пса строго в рамках вычисленного непрерывного коридора
+    bool hit_boundary = false;
+
+    if (v.ux > 0) { // На восток (R)
         if (p_target.x >= max_x) {
             p_target.x = max_x;
             hit_boundary = true;
         }
     }
-    else if (v.ux < 0) { // Влево (L)
-        double min_x = p0.x;
-        bool expanded = true;
-        while (expanded) {
-            expanded = false;
-            for (const auto& road : all_roads) {
-                auto bounds = GetRoadBounds(road);
-                if (p0.y >= bounds.min_y && p0.y <= bounds.max_y) {
-                    if (min_x >= bounds.min_x && min_x <= bounds.max_x) {
-                        if (bounds.min_x < min_x) {
-                            min_x = bounds.min_x;
-                            expanded = true;
-                        }
-                    }
-                }
-            }
-        }
+    else if (v.ux < 0) { // На запад (L)
         if (p_target.x <= min_x) {
             p_target.x = min_x;
             hit_boundary = true;
         }
     }
-    else if (v.uy > 0) { // Вниз (D)
-        double max_y = p0.y;
-        bool expanded = true;
-        while (expanded) {
-            expanded = false;
-            for (const auto& road : all_roads) {
-                auto bounds = GetRoadBounds(road);
-                if (p0.x >= bounds.min_x && p0.x <= bounds.max_x) {
-                    if (max_y >= bounds.min_y && max_y <= bounds.max_y) {
-                        if (bounds.max_y > max_y) {
-                            max_y = bounds.max_y;
-                            expanded = true;
-                        }
-                    }
-                }
-            }
-        }
+    else if (v.uy > 0) { // На юг (D)
         if (p_target.y >= max_y) {
             p_target.y = max_y;
             hit_boundary = true;
         }
     }
-    else if (v.uy < 0) { // Вверх (U)
-        double min_y = p0.y;
-        bool expanded = true;
-        while (expanded) {
-            expanded = false;
-            for (const auto& road : all_roads) {
-                auto bounds = GetRoadBounds(road);
-                if (p0.x >= bounds.min_x && p0.x <= bounds.max_x) {
-                    if (min_y >= bounds.min_y && min_y <= bounds.max_y) {
-                        if (bounds.min_y < min_y) {
-                            min_y = bounds.min_y;
-                            expanded = true;
-                        }
-                    }
-                }
-            }
-        }
+    else if (v.uy < 0) { // На север (U)
         if (p_target.y <= min_y) {
             p_target.y = min_y;
             hit_boundary = true;
         }
     }
 
+    // Если врезались в тупик непрерывной зоны — глушим скорость
     if (hit_boundary) {
         dog.SetSpeed({0.0, 0.0});
     }
