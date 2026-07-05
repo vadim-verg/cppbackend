@@ -165,6 +165,7 @@ private:
     {
         http::response<http::string_body> res(status, req.version());
         res.set(http::field::content_type, "application/json");
+        res.set(http::field::cache_control, "no-cache");
         res.body() = body;
         res.prepare_payload();
         res.keep_alive(req.keep_alive());
