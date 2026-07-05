@@ -163,34 +163,39 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
         return;
     }
 
-    const auto& all_roads = map.GetRoads();
-
-    for (const auto& road : all_roads) {
-        auto bounds = GetRoadBounds(road);
-        if (p0.x >= bounds.min_x && p0.x <= bounds.max_x && p0.y >= bounds.min_y && p0.y <= bounds.max_y) {
-            if (v.ux != 0.0 && road.IsHorizontal()) {
-                p0.y = static_cast<double>(road.GetStart().y);
-                break;
-            }
-            if (v.uy != 0.0 && road.IsVertical()) {
-                p0.x = static_cast<double>(road.GetStart().x);
-                break;
-            }
-        }
-    }
-
     model::Point2D p_target = {
         p0.x + v.ux * delta_time_seconds,
         p0.y + v.uy * delta_time_seconds
     };
 
+    const auto& all_roads = map.GetRoads();
+
+    auto is_safe = [&](const model::Point2D& pos) {
+        for (const auto& road : all_roads) {
+            if (IsPointOnRoad(pos, GetRoadBounds(road))) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    // Если целевая точка безопасна — ходим свободно (идеально для микрошагов)
+    if (is_safe(p_target)) {
+        dog.SetPosition(p_target);
+        return;
+    }
+
     bool hit_boundary = false;
 
-    if (v.ux > 0) { // Движение на восток (R)
+    // Коридорное расширение: ищем границы дорог, проверяя легитимность оси
+    // как для стартовой p0, так и для целевой p_target координаты (это лечит перекрёстки!)
+    if (v.ux > 0) { // Вправо (R)
         double max_x = p0.x;
         for (const auto& road : all_roads) {
             auto bounds = GetRoadBounds(road);
-            if (p0.y >= bounds.min_y && p0.y <= bounds.max_y && p0.x >= bounds.min_x && p0.x <= bounds.max_x) {
+            bool y_valid = (p0.y >= bounds.min_y && p0.y <= bounds.max_y) ||
+                           (p_target.y >= bounds.min_y && p_target.y <= bounds.max_y);
+            if (y_valid && p0.x >= bounds.min_x && p0.x <= bounds.max_x) {
                 max_x = std::max(max_x, bounds.max_x);
             }
         }
@@ -199,24 +204,22 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
             expanded = false;
             for (const auto& road : all_roads) {
                 auto bounds = GetRoadBounds(road);
-                if (p0.y >= bounds.min_y && p0.y <= bounds.max_y && max_x >= bounds.min_x && max_x <= bounds.max_x) {
-                    if (bounds.max_x > max_x) {
-                        max_x = bounds.max_x;
-                        expanded = true;
-                    }
+                bool y_valid = (p0.y >= bounds.min_y && p0.y <= bounds.max_y) ||
+                               (p_target.y >= bounds.min_y && p_target.y <= bounds.max_y);
+                if (y_valid && max_x >= bounds.min_x && max_x <= bounds.max_x) {
+                    if (bounds.max_x > max_x) { max_x = bounds.max_x; expanded = true; }
                 }
             }
         }
-        if (p_target.x >= max_x) {
-            p_target.x = max_x;
-            hit_boundary = true;
-        }
+        if (p_target.x >= max_x) { p_target.x = max_x; hit_boundary = true; }
     }
-    else if (v.ux < 0) { // Движение на запад (L)
+    else if (v.ux < 0) { // Влево (L)
         double min_x = p0.x;
         for (const auto& road : all_roads) {
             auto bounds = GetRoadBounds(road);
-            if (p0.y >= bounds.min_y && p0.y <= bounds.max_y && p0.x >= bounds.min_x && p0.x <= bounds.max_x) {
+            bool y_valid = (p0.y >= bounds.min_y && p0.y <= bounds.max_y) ||
+                           (p_target.y >= bounds.min_y && p_target.y <= bounds.max_y);
+            if (y_valid && p0.x >= bounds.min_x && p0.x <= bounds.max_x) {
                 min_x = std::min(min_x, bounds.min_x);
             }
         }
@@ -225,24 +228,22 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
             expanded = false;
             for (const auto& road : all_roads) {
                 auto bounds = GetRoadBounds(road);
-                if (p0.y >= bounds.min_y && p0.y <= bounds.max_y && min_x >= bounds.min_x && min_x <= bounds.max_x) {
-                    if (bounds.min_x < min_x) {
-                        min_x = bounds.min_x;
-                        expanded = true;
-                    }
+                bool y_valid = (p0.y >= bounds.min_y && p0.y <= bounds.max_y) ||
+                               (p_target.y >= bounds.min_y && p_target.y <= bounds.max_y);
+                if (y_valid && min_x >= bounds.min_x && min_x <= bounds.max_x) {
+                    if (bounds.min_x < min_x) { min_x = bounds.min_x; expanded = true; }
                 }
             }
         }
-        if (p_target.x <= min_x) {
-            p_target.x = min_x;
-            hit_boundary = true;
-        }
+        if (p_target.x <= min_x) { p_target.x = min_x; hit_boundary = true; }
     }
-    else if (v.uy > 0) { // Движение на юг (D)
+    else if (v.uy > 0) { // Вниз (D)
         double max_y = p0.y;
         for (const auto& road : all_roads) {
             auto bounds = GetRoadBounds(road);
-            if (p0.x >= bounds.min_x && p0.x <= bounds.max_x && p0.y >= bounds.min_y && p0.y <= bounds.max_y) {
+            bool x_valid = (p0.x >= bounds.min_x && p0.x <= bounds.max_x) ||
+                           (p_target.x >= bounds.min_x && p_target.x <= bounds.max_x);
+            if (x_valid && p0.y >= bounds.min_y && p0.y <= bounds.max_y) {
                 max_y = std::max(max_y, bounds.max_y);
             }
         }
@@ -251,24 +252,22 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
             expanded = false;
             for (const auto& road : all_roads) {
                 auto bounds = GetRoadBounds(road);
-                if (p0.x >= bounds.min_x && p0.x <= bounds.max_x && max_y >= bounds.min_y && max_y <= bounds.max_y) {
-                    if (bounds.max_y > max_y) {
-                        max_y = bounds.max_y;
-                        expanded = true;
-                    }
+                bool x_valid = (p0.x >= bounds.min_x && p0.x <= bounds.max_x) ||
+                               (p_target.x >= bounds.min_x && p_target.x <= bounds.max_x);
+                if (x_valid && max_y >= bounds.min_y && max_y <= bounds.max_y) {
+                    if (bounds.max_y > max_y) { max_y = bounds.max_y; expanded = true; }
                 }
             }
         }
-        if (p_target.y >= max_y) {
-            p_target.y = max_y;
-            hit_boundary = true;
-        }
+        if (p_target.y >= max_y) { p_target.y = max_y; hit_boundary = true; }
     }
-    else if (v.uy < 0) { // Движение на север (U)
+    else if (v.uy < 0) { // Вверх (U)
         double min_y = p0.y;
         for (const auto& road : all_roads) {
             auto bounds = GetRoadBounds(road);
-            if (p0.x >= bounds.min_x && p0.x <= bounds.max_x && p0.y >= bounds.min_y && p0.y <= bounds.max_y) {
+            bool x_valid = (p0.x >= bounds.min_x && p0.x <= bounds.max_x) ||
+                           (p_target.x >= bounds.min_x && p_target.x <= bounds.max_x);
+            if (x_valid && p0.y >= bounds.min_y && p0.y <= bounds.max_y) {
                 min_y = std::min(min_y, bounds.min_y);
             }
         }
@@ -277,18 +276,14 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
             expanded = false;
             for (const auto& road : all_roads) {
                 auto bounds = GetRoadBounds(road);
-                if (p0.x >= bounds.min_x && p0.x <= bounds.max_x && min_y >= bounds.min_y && min_y <= bounds.max_y) {
-                    if (bounds.min_y < min_y) {
-                        min_y = bounds.min_y;
-                        expanded = true;
-                    }
+                bool x_valid = (p0.x >= bounds.min_x && p0.x <= bounds.max_x) ||
+                               (p_target.x >= bounds.min_x && p_target.x <= bounds.max_x);
+                if (x_valid && min_y >= bounds.min_y && min_y <= bounds.max_y) {
+                    if (bounds.min_y < min_y) { min_y = bounds.min_y; expanded = true; }
                 }
             }
         }
-        if (p_target.y <= min_y) {
-            p_target.y = min_y;
-            hit_boundary = true;
-        }
+        if (p_target.y <= min_y) { p_target.y = min_y; hit_boundary = true; }
     }
 
     if (hit_boundary) {
