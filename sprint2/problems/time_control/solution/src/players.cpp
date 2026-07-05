@@ -73,6 +73,10 @@ std::optional<std::vector<std::shared_ptr<Player>>> Application::GetPlayersInSes
         }
     }
 
+    std::sort(session_players.begin(), session_players.end(), [](const auto& a, const auto& b) {
+        return a->GetId() < b->GetId();
+    });
+
     return session_players;
 }
 
@@ -190,7 +194,6 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
             expanded = false;
             for (const auto& road : all_roads) {
                 auto bounds = GetRoadBounds(road);
-                // Если дорога пересекается с нашим текущим отрезком по Y и расширяет доступный X
                 if (p0.y >= bounds.min_y && p0.y <= bounds.max_y &&
                     max_x >= bounds.min_x && max_x <= bounds.max_x) {
                     if (bounds.max_x > max_x) {
