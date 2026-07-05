@@ -163,28 +163,12 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
         return;
     }
 
-    const auto& all_roads = map.GetRoads();
-
-    // Перед началом движения выравниваем пса на ось дороги, по которой он сейчас побежит
-    // Это лечит проблему, когда пёс пытается съехать со стыка дорог с микро-смещением
-    for (const auto& road : all_roads) {
-        auto bounds = GetRoadBounds(road);
-        if (IsPointOnRoad(p0, bounds)) {
-            if (v.ux != 0.0 && road.IsHorizontal()) {
-                p0.y = static_cast<double>(road.GetStart().y); // Прижимаем к горизонтальной оси
-                break;
-            }
-            if (v.uy != 0.0 && road.IsVertical()) {
-                p0.x = static_cast<double>(road.GetStart().x); // Прижимаем к вертикальной оси
-                break;
-            }
-        }
-    }
-
     model::Point2D p_target = {
         p0.x + v.ux * delta_time_seconds,
         p0.y + v.uy * delta_time_seconds
     };
+
+    const auto& all_roads = map.GetRoads();
 
     auto is_safe = [&](const model::Point2D& pos) {
         for (const auto& road : all_roads) {
@@ -195,6 +179,7 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
         return false;
     };
 
+    // Если целевая точка легальна, просто перемещаем пса (работает для перекрестков и микро-шагов)
     if (is_safe(p_target)) {
         dog.SetPosition(p_target);
         return;
@@ -202,6 +187,8 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
 
     bool hit_boundary = false;
 
+    // Ищем максимальные границы движения по цепочке дорог,
+    // учитывая, что пёс может стоять со смещением на любой из пересекающихся дорог
     if (v.ux > 0) { // Вправо (R)
         double max_x = p0.x;
         bool expanded = true;
@@ -209,11 +196,13 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
             expanded = false;
             for (const auto& road : all_roads) {
                 auto bounds = GetRoadBounds(road);
-                if (p0.y >= bounds.min_y && p0.y <= bounds.max_y &&
-                    max_x >= bounds.min_x && max_x <= bounds.max_x) {
-                    if (bounds.max_x > max_x) {
-                        max_x = bounds.max_x;
-                        expanded = true;
+                // Проверяем, подходит ли дорога по высоте Y для текущего положения
+                if (p0.y >= bounds.min_y && p0.y <= bounds.max_y) {
+                    if (max_x >= bounds.min_x && max_x <= bounds.max_x) {
+                        if (bounds.max_x > max_x) {
+                            max_x = bounds.max_x;
+                            expanded = true;
+                        }
                     }
                 }
             }
@@ -230,11 +219,12 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
             expanded = false;
             for (const auto& road : all_roads) {
                 auto bounds = GetRoadBounds(road);
-                if (p0.y >= bounds.min_y && p0.y <= bounds.max_y &&
-                    min_x >= bounds.min_x && min_x <= bounds.max_x) {
-                    if (bounds.min_x < min_x) {
-                        min_x = bounds.min_x;
-                        expanded = true;
+                if (p0.y >= bounds.min_y && p0.y <= bounds.max_y) {
+                    if (min_x >= bounds.min_x && min_x <= bounds.max_x) {
+                        if (bounds.min_x < min_x) {
+                            min_x = bounds.min_x;
+                            expanded = true;
+                        }
                     }
                 }
             }
@@ -251,11 +241,12 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
             expanded = false;
             for (const auto& road : all_roads) {
                 auto bounds = GetRoadBounds(road);
-                if (p0.x >= bounds.min_x && p0.x <= bounds.max_x &&
-                    max_y >= bounds.min_y && max_y <= bounds.max_y) {
-                    if (bounds.max_y > max_y) {
-                        max_y = bounds.max_y;
-                        expanded = true;
+                if (p0.x >= bounds.min_x && p0.x <= bounds.max_x) {
+                    if (max_y >= bounds.min_y && max_y <= bounds.max_y) {
+                        if (bounds.max_y > max_y) {
+                            max_y = bounds.max_y;
+                            expanded = true;
+                        }
                     }
                 }
             }
@@ -272,11 +263,12 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
             expanded = false;
             for (const auto& road : all_roads) {
                 auto bounds = GetRoadBounds(road);
-                if (p0.x >= bounds.min_x && p0.x <= bounds.max_x &&
-                    min_y >= bounds.min_y && min_y <= bounds.max_y) {
-                    if (bounds.min_y < min_y) {
-                        min_y = bounds.min_y;
-                        expanded = true;
+                if (p0.x >= bounds.min_x && p0.x <= bounds.max_x) {
+                    if (min_y >= bounds.min_y && min_y <= bounds.max_y) {
+                        if (bounds.min_y < min_y) {
+                            min_y = bounds.min_y;
+                            expanded = true;
+                        }
                     }
                 }
             }
