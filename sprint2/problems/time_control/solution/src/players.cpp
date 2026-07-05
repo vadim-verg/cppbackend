@@ -155,87 +155,83 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
     model::Point2D p0 = dog.GetPosition();
     model::Speed2D v = dog.GetSpeed();
 
+    // Если скорость нулевая — стоим на месте
     if (v.ux == 0.0 && v.uy == 0.0) {
         return;
     }
 
+    // Целевая координата шага
     model::Point2D p_target = {
         p0.x + v.ux * delta_time_seconds,
         p0.y + v.uy * delta_time_seconds
     };
 
     const auto& all_roads = map.GetRoads();
-    std::vector<RoadBounds> current_roads;
 
-    // Округляем координаты до целых чисел, чтобы найти осевые линии дорог
-    int approx_x = static_cast<int>(std::round(p0.x));
-    int approx_y = static_cast<int>(std::round(p0.y));
-
-    // Быстро выбираем только потенциально подходящие горизонтальные дороги
-    for (size_t idx : map.GetHorizontalRoadsByY(approx_y)) {
-        auto bounds = GetRoadBounds(all_roads[idx]);
-        if (IsPointOnRoad(p0, bounds)) {
-            current_roads.push_back(bounds);
-        }
-    }
-
-    // Быстро выбираем только потенциально подходящие вертикальные дороги
-    for (size_t idx : map.GetVerticalRoadsByX(approx_x)) {
-        auto bounds = GetRoadBounds(all_roads[idx]);
-        if (IsPointOnRoad(p0, bounds)) {
-            current_roads.push_back(bounds);
-        }
-    }
-
-    // Если пёс из-за погрешности double не попал в округление, делаем резервный быстрый поиск по соседним осям
-    if (current_roads.empty()) {
-        for (int offset : {-1, 1}) {
-            for (size_t idx : map.GetHorizontalRoadsByY(approx_y + offset)) {
-                auto bounds = GetRoadBounds(all_roads[idx]);
-                if (IsPointOnRoad(p0, bounds)) current_roads.push_back(bounds);
-            }
-            for (size_t idx : map.GetVerticalRoadsByX(approx_x + offset)) {
-                auto bounds = GetRoadBounds(all_roads[idx]);
-                if (IsPointOnRoad(p0, bounds)) current_roads.push_back(bounds);
-            }
-        }
-    }
-
-    // Проверяем безопасность целевой точки P_target на основе найденных локальных дорог
-    bool target_is_safe = false;
-    for (const auto& bounds : current_roads) {
-        if (IsPointOnRoad(p_target, bounds)) {
-            target_is_safe = true;
+    // 1. Проверяем, легальна ли целевая точка на ВСЕЙ карте (для перекрёстков)
+    bool target_is_on_any_road = false;
+    for (const auto& road : all_roads) {
+        if (IsPointOnRoad(p_target, GetRoadBounds(road))) {
+            target_is_on_any_road = true;
             break;
         }
     }
 
-    if (target_is_safe) {
+    if (target_is_on_any_road) {
+        // Перекрёсток или свободный путь — перемещаем пса без ограничений
         dog.SetPosition(p_target);
-    } else {
-        if (v.ux > 0) {
-            double best_max_x = p0.x;
-            for (const auto& bounds : current_roads) best_max_x = std::max(best_max_x, bounds.max_x);
-            p_target.x = std::min(p_target.x, best_max_x);
-            dog.SetSpeed({0.0, 0.0});
-        } else if (v.ux < 0) {
-            double best_min_x = p0.x;
-            for (const auto& bounds : current_roads) best_min_x = std::min(best_min_x, bounds.min_x);
-            p_target.x = std::max(p_target.x, best_min_x);
-            dog.SetSpeed({0.0, 0.0});
-        } else if (v.uy > 0) {
-            double best_max_y = p0.y;
-            for (const auto& bounds : current_roads) best_max_y = std::max(best_max_y, bounds.max_y);
-            p_target.y = std::min(p_target.y, best_max_y);
-            dog.SetSpeed({0.0, 0.0});
-        } else if (v.uy < 0) {
-            double best_min_y = p0.y;
-            for (const auto& bounds : current_roads) best_min_y = std::min(best_min_y, bounds.min_y);
-            p_target.y = std::max(p_target.y, best_min_y);
-            dog.SetSpeed({0.0, 0.0});
-        }
-        dog.SetPosition(p_target);
+        return;
     }
+
+    // 2. Если вылетели — ищем все дороги, на которых пёс стоял ИЗНАЧАЛЬНО (в точке p0)
+    std::vector<RoadBounds> starting_roads;
+    for (const auto& road : all_roads) {
+        auto bounds = GetRoadBounds(road);
+        if (IsPointOnRoad(p0, bounds)) {
+            starting_roads.push_back(bounds);
+        }
+    }
+
+    // Если список пуст (аномалия), защищаем сервер от вылета
+    if (starting_roads.empty()) {
+        return;
+    }
+
+    // 3. Прижимаем пса к крайней границе дорожного полотна из тех, где он стартовал
+    if (v.ux > 0) { // На восток (R)
+        double limit_x = p0.x;
+        for (const auto& bounds : starting_roads) {
+            limit_x = std::max(limit_x, bounds.max_x);
+        }
+        p_target.x = limit_x;
+        dog.SetSpeed({0.0, 0.0});
+    }
+    else if (v.ux < 0) { // На запад (L)
+        double limit_x = p0.x;
+        for (const auto& bounds : starting_roads) {
+            limit_x = std::min(limit_x, bounds.min_x);
+        }
+        p_target.x = limit_x;
+        dog.SetSpeed({0.0, 0.0});
+    }
+    else if (v.uy > 0) { // На юг (D)
+        double limit_y = p0.y;
+        for (const auto& bounds : starting_roads) {
+            limit_y = std::max(limit_y, bounds.max_y);
+        }
+        p_target.y = limit_y;
+        dog.SetSpeed({0.0, 0.0});
+    }
+    else if (v.uy < 0) { // На север (U)
+        double limit_y = p0.y;
+        for (const auto& bounds : starting_roads) {
+            limit_y = std::min(limit_y, bounds.min_y);
+        }
+        p_target.y = limit_y;
+        dog.SetSpeed({0.0, 0.0});
+    }
+
+    dog.SetPosition(p_target);
 }
 
 } // namespace app
