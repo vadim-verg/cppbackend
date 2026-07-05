@@ -175,7 +175,7 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
         double min_x = p0.x;
         double max_x = p0.x;
 
-        // 1. Сначала находим границы дорог, на которых пёс стоит прямо сейчас
+        // 1. Находим базовые границы дорог, на которых пёс стоит прямо сейчас
         for (const auto& road : all_roads) {
             auto bounds = GetRoadBounds(road);
             if (p0.y >= bounds.min_y && p0.y <= bounds.max_y && p0.x >= bounds.min_x && p0.x <= bounds.max_x) {
@@ -184,14 +184,14 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
             }
         }
 
-        // 2. Итеративно расширяем границы за счёт любых дорог, которые пересекаются с нашим интервалом [min_x, max_x]
         bool expanded = true;
         while (expanded) {
             expanded = false;
             for (const auto& road : all_roads) {
                 auto bounds = GetRoadBounds(road);
-                if (p0.y >= bounds.min_y && p0.y <= bounds.max_y) {
-                    // Если дорога перекрывает наш текущий легальный отрез
+                // Проверяем, пересекаются ли дороги по оси Y хотя бы частично (для Т-образных перекрестков)
+                bool y_overlaps = (bounds.min_y <= p0.y + 0.4 && bounds.max_y >= p0.y - 0.4);
+                if (y_overlaps) {
                     if (bounds.min_x <= max_x && bounds.max_x >= min_x) {
                         if (bounds.min_x < min_x) { min_x = bounds.min_x; expanded = true; }
                         if (bounds.max_x > max_x) { max_x = bounds.max_x; expanded = true; }
@@ -200,7 +200,7 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
             }
         }
 
-        // 3. Ограничиваем целевую точку
+        // 3. Прижимаем к границам коридора
         if (v.ux > 0 && p_target.x >= max_x) {
             p_target.x = max_x;
             hit_boundary = true;
@@ -226,7 +226,8 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
             expanded = false;
             for (const auto& road : all_roads) {
                 auto bounds = GetRoadBounds(road);
-                if (p0.x >= bounds.min_x && p0.x <= bounds.max_x) {
+                bool x_overlaps = (bounds.min_x <= p0.x + 0.4 && bounds.max_x >= p0.x - 0.4);
+                if (x_overlaps) {
                     if (bounds.min_y <= max_y && bounds.max_y >= min_y) {
                         if (bounds.min_y < min_y) { min_y = bounds.min_y; expanded = true; }
                         if (bounds.max_y > max_y) { max_y = bounds.max_y; expanded = true; }
