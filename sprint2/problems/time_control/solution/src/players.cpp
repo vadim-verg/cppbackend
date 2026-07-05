@@ -170,6 +170,7 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
 
     const auto& all_roads = map.GetRoads();
 
+    // Вспомогательная лямбда проверки легитимности точки на карте
     auto is_safe = [&](const model::Point2D& pos) {
         for (const auto& road : all_roads) {
             if (IsPointOnRoad(pos, GetRoadBounds(road))) {
@@ -179,7 +180,7 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
         return false;
     };
 
-    // Если целевая точка безопасна — ходим свободно (идеально для микрошагов)
+    // Если целевая траектория полностью безопасна — просто передвигаем пса
     if (is_safe(p_target)) {
         dog.SetPosition(p_target);
         return;
@@ -187,103 +188,68 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
 
     bool hit_boundary = false;
 
-    // Коридорное расширение: ищем границы дорог, проверяя легитимность оси
-    // как для стартовой p0, так и для целевой p_target координаты (это лечит перекрёстки!)
+    // Вычисляем истинные границы движения strictly вдоль вектора скорости.
+    // Находим экстремумы дорог, которые физически пересекают текущую перпендикулярную координату пса.
     if (v.ux > 0) { // Вправо (R)
         double max_x = p0.x;
         for (const auto& road : all_roads) {
             auto bounds = GetRoadBounds(road);
-            bool y_valid = (p0.y >= bounds.min_y && p0.y <= bounds.max_y) ||
-                           (p_target.y >= bounds.min_y && p_target.y <= bounds.max_y);
-            if (y_valid && p0.x >= bounds.min_x && p0.x <= bounds.max_x) {
-                max_x = std::max(max_x, bounds.max_x);
-            }
-        }
-        bool expanded = true;
-        while (expanded) {
-            expanded = false;
-            for (const auto& road : all_roads) {
-                auto bounds = GetRoadBounds(road);
-                bool y_valid = (p0.y >= bounds.min_y && p0.y <= bounds.max_y) ||
-                               (p_target.y >= bounds.min_y && p_target.y <= bounds.max_y);
-                if (y_valid && max_x >= bounds.min_x && max_x <= bounds.max_x) {
-                    if (bounds.max_x > max_x) { max_x = bounds.max_x; expanded = true; }
+            if (p0.y >= bounds.min_y && p0.y <= bounds.max_y) {
+                // Дорога должна соприкасаться с нашей текущей известной легальной зоной X
+                if (bounds.min_x <= max_x && bounds.max_x >= p0.x) {
+                    max_x = std::max(max_x, bounds.max_x);
                 }
             }
         }
-        if (p_target.x >= max_x) { p_target.x = max_x; hit_boundary = true; }
+        if (p_target.x >= max_x) {
+            p_target.x = max_x;
+            hit_boundary = true;
+        }
     }
     else if (v.ux < 0) { // Влево (L)
         double min_x = p0.x;
         for (const auto& road : all_roads) {
             auto bounds = GetRoadBounds(road);
-            bool y_valid = (p0.y >= bounds.min_y && p0.y <= bounds.max_y) ||
-                           (p_target.y >= bounds.min_y && p_target.y <= bounds.max_y);
-            if (y_valid && p0.x >= bounds.min_x && p0.x <= bounds.max_x) {
-                min_x = std::min(min_x, bounds.min_x);
-            }
-        }
-        bool expanded = true;
-        while (expanded) {
-            expanded = false;
-            for (const auto& road : all_roads) {
-                auto bounds = GetRoadBounds(road);
-                bool y_valid = (p0.y >= bounds.min_y && p0.y <= bounds.max_y) ||
-                               (p_target.y >= bounds.min_y && p_target.y <= bounds.max_y);
-                if (y_valid && min_x >= bounds.min_x && min_x <= bounds.max_x) {
-                    if (bounds.min_x < min_x) { min_x = bounds.min_x; expanded = true; }
+            if (p0.y >= bounds.min_y && p0.y <= bounds.max_y) {
+                if (bounds.max_x >= min_x && bounds.min_x <= p0.x) {
+                    min_x = std::min(min_x, bounds.min_x);
                 }
             }
         }
-        if (p_target.x <= min_x) { p_target.x = min_x; hit_boundary = true; }
+        if (p_target.x <= min_x) {
+            p_target.x = min_x;
+            hit_boundary = true;
+        }
     }
     else if (v.uy > 0) { // Вниз (D)
         double max_y = p0.y;
         for (const auto& road : all_roads) {
             auto bounds = GetRoadBounds(road);
-            bool x_valid = (p0.x >= bounds.min_x && p0.x <= bounds.max_x) ||
-                           (p_target.x >= bounds.min_x && p_target.x <= bounds.max_x);
-            if (x_valid && p0.y >= bounds.min_y && p0.y <= bounds.max_y) {
-                max_y = std::max(max_y, bounds.max_y);
-            }
-        }
-        bool expanded = true;
-        while (expanded) {
-            expanded = false;
-            for (const auto& road : all_roads) {
-                auto bounds = GetRoadBounds(road);
-                bool x_valid = (p0.x >= bounds.min_x && p0.x <= bounds.max_x) ||
-                               (p_target.x >= bounds.min_x && p_target.x <= bounds.max_x);
-                if (x_valid && max_y >= bounds.min_y && max_y <= bounds.max_y) {
-                    if (bounds.max_y > max_y) { max_y = bounds.max_y; expanded = true; }
+            if (p0.x >= bounds.min_x && p0.x <= bounds.max_x) {
+                if (bounds.min_y <= max_y && bounds.max_y >= p0.y) {
+                    max_y = std::max(max_y, bounds.max_y);
                 }
             }
         }
-        if (p_target.y >= max_y) { p_target.y = max_y; hit_boundary = true; }
+        if (p_target.y >= max_y) {
+            p_target.y = max_y;
+            hit_boundary = true;
+        }
     }
     else if (v.uy < 0) { // Вверх (U)
         double min_y = p0.y;
         for (const auto& road : all_roads) {
             auto bounds = GetRoadBounds(road);
-            bool x_valid = (p0.x >= bounds.min_x && p0.x <= bounds.max_x) ||
-                           (p_target.x >= bounds.min_x && p_target.x <= bounds.max_x);
-            if (x_valid && p0.y >= bounds.min_y && p0.y <= bounds.max_y) {
-                min_y = std::min(min_y, bounds.min_y);
-            }
-        }
-        bool expanded = true;
-        while (expanded) {
-            expanded = false;
-            for (const auto& road : all_roads) {
-                auto bounds = GetRoadBounds(road);
-                bool x_valid = (p0.x >= bounds.min_x && p0.x <= bounds.max_x) ||
-                               (p_target.x >= bounds.min_x && p_target.x <= bounds.max_x);
-                if (x_valid && min_y >= bounds.min_y && min_y <= bounds.max_y) {
-                    if (bounds.min_y < min_y) { min_y = bounds.min_y; expanded = true; }
+            if (p0.x >= bounds.min_x && p0.x <= bounds.max_x) {
+                if (bounds.max_y >= min_y && bounds.min_y <= p0.y) {
+                    min_y = std::min(min_y, bounds.min_y);
                 }
             }
         }
-        if (p_target.y <= min_y) { p_target.y = min_y; hit_boundary = true; }
+        if (p_target.y <= min_y) {
+            p_target.y = min_y;
+            hit_boundary = true;
+        }
     }
 
     if (hit_boundary) {
