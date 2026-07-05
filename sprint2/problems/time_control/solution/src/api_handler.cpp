@@ -161,19 +161,17 @@ http::response<http::string_body> ApiHandler::HandleGetGameState(const http::req
 
     // 4. Успех: Формируем JSON-объект состояния всех игроков текущей сессии
     boost::json::object players_json;
+
     for (const auto& player : *players_opt) {
-        auto dog_ptr = player->GetDog(); // Получаем связанного пса из модели
+        auto dog_ptr = player->GetDog();
 
         boost::json::object dog_data;
-        // По ТЗ pos — массив из двух вещественных чисел
         dog_data["pos"] = boost::json::array{dog_ptr->GetPosition().x, dog_ptr->GetPosition().y};
-        // По ТЗ speed — массив из двух вещественных чисел (пока 0.0)
         dog_data["speed"] = boost::json::array{dog_ptr->GetSpeed().ux, dog_ptr->GetSpeed().uy};
-        // По ТЗ dir — строка направления по умолчанию "U" (вверх/север)
         dog_data["dir"] = std::string(json_loader::DirectionToString(dog_ptr->GetDirection()));
 
-        // Идентификатор игрока преобразуем в строку как ключ объекта
-        players_json[std::to_string(player->GetId())] = dog_data;
+        // Вставляем строго по очереди. Ключ — строка ID
+        players_json.emplace(std::to_string(player->GetId()), dog_data);
     }
 
     boost::json::object root_json;
