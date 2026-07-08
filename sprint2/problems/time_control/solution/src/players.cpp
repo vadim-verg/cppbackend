@@ -39,16 +39,28 @@ std::optional<JoinGameResult> Application::JoinGame(const std::string& user_name
         return std::nullopt;
     }
 
-    // 2. Рассчитываем случайную стартовку на дороге с помощью метода из model
-    // Поскольку метод объявлен внутри класса Map, вызываем его у объекта карты
-    model::Point2D random_pos = const_cast<model::Map*>(map_ptr)->CalculateRandomDogPosition(*map_ptr);
+    // 2. Выбор позиции в зависимости от флага рандомизации (используем randomize_spawn_)
+    model::Point2D start_pos;
+    if (randomize_spawn_) {
+        // Если рандом включен — используем ваш метод генерации случайной позиции
+        start_pos = const_cast<model::Map*>(map_ptr)->CalculateRandomDogPosition(*map_ptr);
+    } else {
+        // Если рандом выключен — берем координаты начала (x0, y0) ПЕРВОЙ дороги на карте
+        const auto& roads = map_ptr->GetRoads();
+        if (!roads.empty()) {
+            auto start_road = roads.at(0).GetStart();
+            start_pos = {static_cast<double>(start_road.x), static_cast<double>(start_road.y)};
+        } else {
+            start_pos = {0.0, 0.0}; // Фолбэк, если дорог на карте вдруг нет
+        }
+    }
 
     // 3. Создаем уникальный ID игрока (и собаки одновременно)
     auto player = player_manager_.CreatePlayer(user_name, map_id);
 
-    // 4. Конструируем объект Dog и связываем его с игроком
+    // 4. Конструируем объект Dog и связываем его с игроком (используем вычисленную start_pos)
     model::Dog::Id dog_id{player->GetId()};
-    auto dog = std::make_shared<model::Dog>(dog_id, user_name, random_pos);
+    auto dog = std::make_shared<model::Dog>(dog_id, user_name, start_pos);
     player->SetDog(dog);
 
     // 5. Генерируем токен авторизации
@@ -169,33 +181,18 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
     };
 
     const auto& all_roads = map.GetRoads();
-
-    auto is_safe = [&](const model::Point2D& pos) {
-        for (const auto& road : all_roads) {
-            if (IsPointOnRoad(pos, GetRoadBounds(road))) {
-                return true;
-            }
-        }
-        return false;
-    };
-
-    if (is_safe(p_target)) {
-        dog.SetPosition(p_target);
-        return;
-    }
-
     bool hit_boundary = false;
 
     if (v.ux > 0) { // Вправо (R)
         double max_x = p0.x;
-        // Находим дорогу, на которой стоим изначально
+        // Сначала собираем границы дорог, на которых стоим
         for (const auto& road : all_roads) {
             auto bounds = GetRoadBounds(road);
             if (p0.y >= bounds.min_y && p0.y <= bounds.max_y && p0.x >= bounds.min_x && p0.x <= bounds.max_x) {
                 max_x = std::max(max_x, bounds.max_x);
             }
         }
-        // Расширяем строго вправо только за счет дорог, перекрывающих текущую высоту Y пса
+        // Расширяем непрерывную цепочку вправо
         bool expanded = true;
         while (expanded) {
             expanded = false;
@@ -209,6 +206,7 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
                 }
             }
         }
+        // Корректируем цель
         if (p_target.x >= max_x) {
             p_target.x = max_x;
             hit_boundary = true;

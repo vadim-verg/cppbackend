@@ -108,6 +108,9 @@ private:
     model::Game& game_;
     PlayerManager player_manager_;
     PlayerTokens player_tokens_;
+
+    bool randomize_spawn_ = false;
+    bool auto_ticking_ = false;
 };
 
 } // namespace app
