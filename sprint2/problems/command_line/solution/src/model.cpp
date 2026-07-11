@@ -62,4 +62,39 @@ const std::vector<size_t>& Map::GetVerticalRoadsByX(int x) const {
     return empty;
 }
 
+Point2D CalculateRandomDogPosition(const Map& map) {
+    const auto& roads = map.GetRoads();
+    if (roads.empty()) {
+        return {0.0, 0.0};
+    }
+
+    // Настраиваем генератор случайных чисел
+    static std::random_device rd;
+    static std::mt19937 gen(rd());
+
+    std::uniform_int_distribution<size_t> road_dist(0, roads.size() - 1);
+    const auto& road = roads[road_dist(gen)];
+
+    Point2D pos;
+    if (road.IsHorizontal()) {
+        // На горизонтальной дороге Y фиксирован, X — случайный
+        double start_x = std::min(road.GetStart().x, road.GetEnd().x);
+        double end_x = std::max(road.GetStart().x, road.GetEnd().x);
+        std::uniform_real_distribution<double> x_dist(start_x, end_x);
+
+        pos.x = x_dist(gen);
+        pos.y = static_cast<double>(road.GetStart().y);
+    } else {
+        // На вертикальной дороге X фиксирован, Y — случайный
+        double start_y = std::min(road.GetStart().y, road.GetEnd().y);
+        double end_y = std::max(road.GetStart().y, road.GetEnd().y);
+        std::uniform_real_distribution<double> y_dist(start_y, end_y);
+
+        pos.x = static_cast<double>(road.GetStart().x);
+        pos.y = y_dist(gen);
+    }
+
+    return pos;
+}
+
 }  // namespace model
