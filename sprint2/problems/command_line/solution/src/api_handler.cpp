@@ -67,7 +67,7 @@ http::response<http::string_body> ApiHandler::HandleJoinGame(const http::request
         const auto& json_obj = json_doc.as_object();
         user_name = boost::json::value_to<std::string>(json_obj.at("userName"));
         map_id = boost::json::value_to<std::string>(json_obj.at("mapId"));
-    } catch (...) {
+    } catch (const std::exception& e) {
         return MakeErrorResponse(http::status::bad_request, "invalidArgument", "Join game request parse error", version);
     }
 
@@ -188,14 +188,12 @@ http::response<http::string_body> ApiHandler::HandleGetGameState(const http::req
 http::response<http::string_body> ApiHandler::HandlePlayerAction(const http::request<http::string_body>& req) const {
     unsigned int version = req.version();
 
-    // Проверка метода - только POST
     if (req.method() != http::verb::post) {
         auto res = MakeErrorResponse(http::status::method_not_allowed, "invalidMethod", "Only POST method is expected", version);
         res.set(http::field::allow, "POST");
         return res;
     }
 
-    // Проверка заголовка Content-Type
     auto ct_it = req.find(http::field::content_type);
     if (ct_it == req.end() || ct_it->value() != "application/json") {
         return MakeErrorResponse(http::status::bad_request, "invalidArgument", "Invalid Content-Type", version);
@@ -215,7 +213,7 @@ http::response<http::string_body> ApiHandler::HandlePlayerAction(const http::req
         if (json_obj.contains("move")) {
             move_cmd = boost::json::value_to<std::string>(json_obj.at("move"));
         }
-    } catch (...) {
+    } catch (const std::exception& e) {
         return MakeErrorResponse(http::status::bad_request, "invalidArgument", "Failed to parse action JSON", version);
     }
 
@@ -238,19 +236,16 @@ http::response<http::string_body> ApiHandler::HandlePlayerAction(const http::req
 http::response<http::string_body> ApiHandler::HandleGameTick(const http::request<http::string_body>& req) const {
     unsigned int version = req.version();
 
-    // Проверка режима автоматического обновления времени
     if (app_.IsAutomaticTicking()) {
         return MakeErrorResponse(http::status::bad_request, "badRequest", "Invalid endpoint", version);
     }
 
-    // Проверка метода - только POST
     if (req.method() != http::verb::post) {
         auto res = MakeErrorResponse(http::status::method_not_allowed, "invalidMethod", "Only POST method is expected", version);
         res.set(http::field::allow, "POST");
         return res;
     }
 
-    // Проверка заголовока Content-Type
     auto ct_it = req.find(http::field::content_type);
     if (ct_it == req.end() || ct_it->value() != "application/json") {
         return MakeErrorResponse(http::status::bad_request, "invalidArgument", "Invalid Content-Type", version);
