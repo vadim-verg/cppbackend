@@ -15,6 +15,7 @@ AMMUNITION = [
     'localhost:8080/api/v1/maps'
 ]
 
+# Константы строго из условий задачи
 SHOOT_COUNT = 100
 COOLDOWN = 0.1
 
@@ -49,37 +50,41 @@ def make_shots():
     print('Shooting complete')
 
 
-# Запуск сервера
+# 1. Запуск сервера с помощью переданного аргумента командной строки
 server_command = start_server()
 server = run(server_command)
 
-# Даем серверу немного времени на инициализацию порта
-time.sleep(0.5)
+# Даем серверу время на инициализацию сетевого порта
+time.sleep(1.0)
 
-# Запуск процесса perf record с явным указанием файла вывода (-o)
-# Трассируем конкретный PID сервера (-p), собираем стек вызовов (-g) на частоте 99 Гц (-F 99)
+# 2. Запуск процесса perf record с явным указанием файла вывода (-o)
+# Трассируем конкретный PID сервера (-p) и собираем стек вызовов (-g)
 perf_data_file = "perf.data"
-perf_command = f"perf record -g -F 99 -p {server.pid} -o {perf_data_file}"
+perf_command = f"perf record -g -F 999 -p {server.pid} -o {perf_data_file}"
 perf_process = run(perf_command)
 
-# Даем perf время прикрепиться к процессу (attach)
-time.sleep(0.5)
+# КРИТИЧЕСКИЙ ШАГ ДЛЯ CI/CD: Ждем 3 секунды, чтобы утилита perf успела полноценно
+# инициализироваться в контейнере и начать перехват до того, как прилетит первый curl
+time.sleep(3.0)
 
-# Выполнение обстрела
+# 3. Выполнение обстрела сервера запросами (длится около 10 секунд)
 make_shots()
 
-# Корректное завершение работы perf record
-# Посылаем сигнал SIGINT (Ctrl+C), чтобы perf успел записать структуру и заголовки в perf.data
+# Даем perf зафиксировать финальные системные тики после окончания стрельбы
+time.sleep(1.0)
+
+# 4. Корректное завершение работы perf record
+# Посылаем сигнал SIGINT (аналог Ctrl+C), чтобы perf успел записать заголовки и таблицы символов
 if perf_process.poll() is None:
     perf_process.send_signal(signal.SIGINT)
-    perf_process.wait()  # Ждем окончания финализации файла данных
+    perf_process.wait()  # Ждем окончания финализации файла данных на диске
 
 # Остановка сервера
 stop(server)
-time.sleep(1)
+time.sleep(1.0)
 print('Job done')
 
-# 6. Построение флеймграфа через двойной пайп
+# 5. Построение флеймграфа через двойной пайп
 # Определяем пути к Perl-скриптам из каталога FlameGraph, расположенного рядом со скриптом
 current_dir = os.path.dirname(os.path.abspath(__file__))
 stackcollapse_path = os.path.join(current_dir, "FlameGraph", "stackcollapse-perf.pl")
@@ -93,16 +98,17 @@ try:
         stderr=subprocess.DEVNULL
     )
     
-    # Первый пайп: Схлопывание стеков
+    # Первый пайп: Схлопывание одинаковых стеков вызовов
     collapse_proc = subprocess.Popen(
         [stackcollapse_path],
         stdin=perf_script_proc.stdout,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL
     )
-    perf_script_proc.stdout.close()  # Разрешаем передачу SIGPIPE в perf_script
+    # Важно закрыть поток чтения в родительском процессе, чтобы collapse_proc корректно получил SIGPIPE
+    perf_script_proc.stdout.close()
     
-    # Второй пайп: Генерация SVG-файла
+    # Второй пайп: Считывание схлопнутых стеков и генерация финального graph.svg
     with open("graph.svg", "w") as svg_file:
         flame_proc = subprocess.Popen(
             [flamegraph_path],
@@ -110,8 +116,8 @@ try:
             stdout=svg_file,
             stderr=subprocess.DEVNULL
         )
-        collapse_proc.stdout.close()  # Разрешаем передачу SIGPIPE в collapse_proc
-        flame_proc.wait()  # Ждем окончания записи graph.svg
+        collapse_proc.stdout.close()  # Закрываем поток для корректного завершения
+        flame_proc.wait()             # Дожидаемся окончания записи файла graph.svg
         
     print("Flamegraph generated successfully inside graph.svg")
 
