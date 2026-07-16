@@ -1,0 +1,9 @@
+[requires]
+boost/1.78.0
+
+[generators]
+cmake_multi
+
+[options]
+# Принудительно заставляем Conan собрать бинарные .lib файлы для Boost.Log
+boost:without_log=False
