@@ -150,12 +150,10 @@ int main(int argc, const char* argv[]) {
 
         // Если передан параметр --tick-period, запускаем автоматический таймер тиков
         if (args_opt->tick_period.has_value()) {
-            // --- [ОБНОВЛЕНО] Внутри лямбды Ticker тикаем и прикладной слой, и генератор предметов модели ---
-            app::Ticker::Handler tick_handler = [&app, &game](std::chrono::milliseconds delta) {
-                // 1. Двигаем собак
+            // [ОБНОВЛЕНО] Оставляем только один вызов app.Tick
+            // Логика генерации предметов game_.Tick() уже инкапсулирована внутри метода Application::Tick
+            app::Ticker::Handler tick_handler = [&app](std::chrono::milliseconds delta) {
                 app.Tick(static_cast<double>(delta.count()) / 1000.0);
-                // 2. Двигаем генератор предметов на картах
-                game.Tick(delta);
             };
 
             auto ticker = std::make_shared<app::Ticker>(

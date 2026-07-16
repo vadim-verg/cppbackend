@@ -142,6 +142,7 @@ bool Application::IsPointOnRoad(const model::Point2D& pos, const RoadBounds& bou
 }
 
 void Application::Tick(double delta_time_seconds) {
+    // 1. Существующая логика движения всех собак
     for (const auto& [id, player] : player_manager_.GetPlayers()) {
         auto dog_ptr = player->GetDog();
         if (!dog_ptr) continue;
@@ -151,6 +152,12 @@ void Application::Tick(double delta_time_seconds) {
 
         UpdateDogPosition(*dog_ptr, *map_ptr, delta_time_seconds);
     }
+
+    // 2. [ДОБАВЛЕНО] Переводим секунды типа double в миллисекунды типа std::chrono::milliseconds
+    auto delta_ms = std::chrono::milliseconds(static_cast<long long>(delta_time_seconds * 1000.0));
+
+    // 3. [ДОБАВЛЕНО] Уведомляем модель игры о прошедшем времени для генерации лута
+    game_.Tick(delta_ms);
 }
 
 void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, double delta_time_seconds) {
