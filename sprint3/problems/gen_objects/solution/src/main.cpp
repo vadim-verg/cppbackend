@@ -134,6 +134,11 @@ int main(int argc, const char* argv[]) {
             app.SetAutomaticTicking(true);
         }
 
+        // --- [ДОБАВЛЕНО] Регистрируем связь слоев: модель теперь знает, как считать собак через App ---
+        game.SetDogCountCallback([&app](const model::Map::Id& map_id) {
+            return app.GetDogCountOnMap(*map_id);
+        });
+
         // Настраиваем асинхронный контекст Boost.Asio
         const unsigned num_threads = std::thread::hardware_concurrency();
         boost::asio::io_context ioc(num_threads);

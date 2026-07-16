@@ -105,6 +105,17 @@ public:
         return game_;
     }
 
+    // --- [ДОБАВЛЕНО] Подсчет собак на конкретной карте ---
+    size_t GetDogCountOnMap(const std::string& map_id) const {
+        size_t count = 0;
+        for (const auto& [id, player] : player_manager_.GetPlayers()) {
+            if (player->GetMapId() == map_id) {
+                count++;
+            }
+        }
+        return count;
+    }
+
 private:
     // Вспомогательная структура для границ дороги
     struct RoadBounds {
