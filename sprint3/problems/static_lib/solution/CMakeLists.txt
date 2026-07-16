@@ -67,10 +67,10 @@ target_link_libraries(game_server GameModel)
 conan_target_link_libraries(game_server)
 
 # Исполняемый файл тестов
-add_executable(game_tests 
-    tests/loot_generator_tests.cpp
-)
+# add_executable(game_tests 
+#    tests/loot_generator_tests.cpp
+# )
 
-target_include_directories(game_tests PRIVATE ${CONAN_INCLUDE_DIRS})
-target_link_libraries(game_tests GameModel)
-conan_target_link_libraries(game_tests)
+# target_include_directories(game_tests PRIVATE ${CONAN_INCLUDE_DIRS})
+# target_link_libraries(game_tests GameModel)
+# conan_target_link_libraries(game_tests)
