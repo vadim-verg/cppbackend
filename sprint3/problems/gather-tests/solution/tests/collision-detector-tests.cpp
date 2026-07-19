@@ -7,7 +7,7 @@
 #include <cmath>
 #include <algorithm>
 
-#include "../src/collision-detector.h"
+#include "collision-detector.h"
 
 using namespace collision_detector;
 
