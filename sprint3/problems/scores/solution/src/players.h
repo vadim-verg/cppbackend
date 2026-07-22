@@ -78,7 +78,7 @@ public:
     explicit Application(model::Game& game)
         : game_(game) {}
 
-    // Модуляция игрового времени (игровой цикл)
+    // Модуляция игрового времени
     void Tick(double delta_time_seconds);
 
     // Возвращает токен и ID или nullopt, если карта не найдена
@@ -105,7 +105,6 @@ public:
         return game_;
     }
 
-    // --- [ДОБАВЛЕНО] Подсчет собак на конкретной карте ---
     size_t GetDogCountOnMap(const std::string& map_id) const {
         size_t count = 0;
         for (const auto& [id, player] : player_manager_.GetPlayers()) {
@@ -117,7 +116,6 @@ public:
     }
 
 private:
-    // Вспомогательная структура для границ дороги
     struct RoadBounds {
         double min_x;
         double max_x;

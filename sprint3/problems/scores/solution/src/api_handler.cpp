@@ -158,12 +158,11 @@ http::response<http::string_body> ApiHandler::HandleGetGameState(const http::req
 
     // Строим JSON-объект состояния всех игроков текущей сессии
     boost::json::object players_json;
-    model::Map::Id current_map_id{""}; // Создаем пустой Id без суффикса 's'
+    model::Map::Id current_map_id{""};
 
     for (const auto& player : *players_opt) {
         auto dog_ptr = player->GetDog();
 
-        // Заполняем ID карты из объекта player (он возвращает std::string, оборачиваем в Tagged)
         if ((*current_map_id).empty()) {
             current_map_id = model::Map::Id{player->GetMapId()};
         }
@@ -173,7 +172,6 @@ http::response<http::string_body> ApiHandler::HandleGetGameState(const http::req
         dog_data["speed"] = boost::json::array{dog_ptr->GetSpeed().ux, dog_ptr->GetSpeed().uy};
         dog_data["dir"] = std::string(json_loader::DirectionToString(dog_ptr->GetDirection()));
 
-        // --- [ОБНОВЛЕНО] Сериализация рюкзака (bag) ---
         boost::json::array json_bag;
         for (const auto& bag_item : dog_ptr->GetBag()) {
             boost::json::object json_item;
@@ -183,16 +181,13 @@ http::response<http::string_body> ApiHandler::HandleGetGameState(const http::req
         }
         dog_data["bag"] = std::move(json_bag);
 
-        // Добавляем очки (score) — по ТЗ они также понадобятся для прохождения find_return
         dog_data["score"] = dog_ptr->GetScore();
 
         players_json.emplace(std::to_string(player->GetId()), dog_data);
     }
 
-    // --- [ОБНОВЛЕНО] Сборка потерянных предметов через новый геттер ---
     boost::json::object lost_objects_json;
 
-    // Вызываем добавленный нами метод GetGame()
     const auto& game = app_.GetGame();
     const auto& lost_objects = game.GetLostObjects(current_map_id);
 
@@ -204,10 +199,9 @@ http::response<http::string_body> ApiHandler::HandleGetGameState(const http::req
         lost_objects_json.emplace(std::to_string(obj_id), obj_data);
     }
 
-    // Собираем корень ответа
     boost::json::object root_json;
     root_json["players"] = players_json;
-    root_json["lostObjects"] = lost_objects_json; // Успешно добавляем в JSON
+    root_json["lostObjects"] = lost_objects_json;
 
     http::response<http::string_body> res(http::status::ok, version);
     res.set(http::field::content_type, "application/json");

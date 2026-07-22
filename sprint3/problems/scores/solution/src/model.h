@@ -7,10 +7,9 @@
 #include <random>
 
 #include "tagged.h"
-#include "loot_generator.h" // Подключаем генератор лута
+#include "loot_generator.h"
 
 namespace model {
-
 
 
 using Dimension = int;
@@ -53,16 +52,16 @@ struct Speed2D {
     double uy = 0.0;
 };
 
-// --- [ДОБАВЛЕНО] Структура для хранения потерянного объекта ---
+// Структура для хранения потерянного объекта
 struct LostObject {
-    unsigned id;             // Уникальный ID объекта в игровой сессии
-    unsigned type;           // Тип от 0 до K-1
-    Point2D pos;             // Координаты {x, y}
+    unsigned id;
+    unsigned type;
+    Point2D pos;
 };
 
 struct BagItem {
-    unsigned id;   // Уникальный ID предмета на карте
-    unsigned type; // Тип предмета (0, 1, 2...)
+    unsigned id;
+    unsigned type;
 };
 
 class Road {
@@ -185,10 +184,8 @@ public:
 
     void AddRoad(const Road& road);
 
-    // Получение индексов дорог, проходящих через координату Y (для горизонтальных)
     const std::vector<size_t>& GetHorizontalRoadsByY(int y) const;
 
-    // Получение индексов дорог, проходящих через координату X (для вертикальных)
     const std::vector<size_t>& GetVerticalRoadsByX(int x) const;
 
     void AddBuilding(const Building& building) {
@@ -205,7 +202,6 @@ public:
         return dog_speed_;
     }
 
-    // --- [ДОБАВЛЕНО] Управление количеством типов лута для чистой архитектуры ---
     void SetLootTypesCount(size_t count) noexcept {
         loot_types_count_ = count;
     }
@@ -214,7 +210,6 @@ public:
         return loot_types_count_;
     }
 
-    // --- [ДОБАВЛЕНО] Управление рюкзаком и ценностью лута ---
     void SetBagCapacity(size_t capacity) noexcept {
         bag_capacity_ = capacity;
     }
@@ -225,11 +220,12 @@ public:
     void SetLootValues(std::vector<int> values) {
         loot_values_ = std::move(values);
     }
+
     int GetLootValue(size_t type_idx) const {
         if (type_idx < loot_values_.size()) {
             return loot_values_[type_idx];
         }
-        return 10; // Дефолтное значение очков по ТЗ, если вдруг индекс некорректен
+        return 0;
     }
 
 private:
@@ -245,13 +241,12 @@ private:
 
     double dog_speed_ = 1.0;
 
-    // --- [ДОБАВЛЕНО] Храним только количество типов, сам JSON уйдёт в App слой ---
     size_t loot_types_count_ = 0;
 
     std::unordered_map<int, std::vector<size_t>> coord_to_horizontal_roads_;
     std::unordered_map<int, std::vector<size_t>> coord_to_vertical_roads_;
 
-    size_t bag_capacity_ = 3; // По умолчанию 3 согласно ТЗ
+    size_t bag_capacity_ = 3; // По умолчанию 3
     std::vector<int> loot_values_;
 };
 
@@ -286,13 +281,11 @@ public:
         return default_dog_speed_;
     }
 
-    // --- [ДОБАВЛЕНО] Настройки конфигурации генератора лута ---
     void SetLootGeneratorConfig(std::chrono::milliseconds period, double probability) noexcept {
         loot_period_ = period;
         loot_probability_ = probability;
     }
 
-    // --- [ДОБАВЛЕНО] Метод получения предметов для конкретной карты ---
     const std::unordered_map<unsigned, LostObject>& GetLostObjects(const Map::Id& map_id) const {
         auto it = map_loot_.find(map_id);
         if (it != map_loot_.end()) {
@@ -302,29 +295,19 @@ public:
         return empty_loot;
     }
 
-    // --- [ДОБАВЛЕНО] Игровой тик для генерации предметов ---
     void Tick(std::chrono::milliseconds delta_time);
 
-    // --- [ДОБАВЛЕНО] Метод подсчета собак на карте ---
-    // Нам нужно знать looter_count для генератора лута.
-    // Если у вас количество собак хранится в другом месте (например, в Application),
-    // мы можем передавать это значение снаружи, либо возвращать из модели:
     size_t GetDogCount(const Map::Id& map_id) const {
         if (dog_count_cb_) {
-            size_t count = dog_count_cb_(map_id);
-            // Если собак на карте пока 0, вернем 1, чтобы лут всё равно генерировался
-            // (многие тесты Практикума ожидают появление лута сразу при старте или для тестов генератора)
-            return count == 0 ? 1 : count;
+            return dog_count_cb_(map_id);
         }
-        return 1;
+        return 0;
     }
 
-    // Вспомогательный метод для обновления количества собак (если нужно)
     void SetDogCount(const Map::Id& map_id, size_t count) {
         map_dogs_count_[map_id] = count;
     }
 
-    // --- [ДОБАВЛЕНО] Удаление подобранного лута с карты ---
     void RemoveLostObject(const Map::Id& map_id, unsigned obj_id) {
         if (map_loot_.contains(map_id)) {
             map_loot_[map_id].erase(obj_id);
@@ -340,7 +323,6 @@ private:
 
     double default_dog_speed_ = 1.0;
 
-    // --- [ДОБАВЛЕНО] Внутренние поля для управления предметами ---
     std::chrono::milliseconds loot_period_{5000};
     double loot_probability_ = 0.5;
 
@@ -349,16 +331,15 @@ private:
     // Генераторы лута для каждой карты
     mutable std::unordered_map<Map::Id, loot_gen::LootGenerator, MapIdHasher> map_generators_;
 
-    // Предметы, лежащие на каждой карте (ID_предмета -> Объект)
+    // Предметы, лежащие на каждой карте
     std::unordered_map<Map::Id, std::unordered_map<unsigned, LostObject>, MapIdHasher> map_loot_;
 
-    // Счётчик уникальных ID для новых предметов на каждой карте
+    // Счётчик уникальных ID для новых предметов
     std::unordered_map<Map::Id, unsigned, MapIdHasher> next_loot_id_;
 
     // Хранилище для количества собак на картах
     std::unordered_map<Map::Id, size_t, MapIdHasher> map_dogs_count_;
 
-    // Движок случайных чисел для CalculateRandomDogPosition и генерации типов лута
     std::mt19937 random_engine_{std::random_device{}()};
 
     void GenerateLootForMap(const Map& map, unsigned count);
@@ -386,7 +367,6 @@ public:
     Direction GetDirection() const noexcept { return direction_; }
     void SetDirection(Direction dir) noexcept { direction_ = dir; }
 
-    // --- [ДОБАВЛЕНО] Методы управления вместимостью рюкзака и очками ---
     void SetBagCapacity(size_t capacity) noexcept { bag_capacity_ = capacity; }
     size_t GetBagCapacity() const noexcept { return bag_capacity_; }
 
@@ -413,8 +393,7 @@ private:
     Speed2D speed_ = {0.0, 0.0};                     // По умолчанию скорость 0
     Direction direction_ = Direction::NORTH;         // По умолчанию направление на север
 
-    // --- [ДОБАВЛЕНО] Внутреннее состояние рюкзака и набранных очков ---
-    size_t bag_capacity_ = 0; // Задаётся динамически из конфига карты при спавне собаки
+    size_t bag_capacity_ = 0;
     std::vector<BagItem> bag_;
     int score_ = 0;
 };

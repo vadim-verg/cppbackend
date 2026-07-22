@@ -51,29 +51,25 @@ boost::json::array SerializeOffices(const model::Map& map) {
     return json_offices;
 }
 
-// [ОБНОВЛЕНО] Собираем полную карту в один JSON-объект с добавлением lootTypes
 boost::json::object SerializeMap(const model::Map& map, const app::LootInfoProvider& loot_info_provider) {
     boost::json::object json_map;
     json_map["id"] = *map.GetId();
     json_map["name"] = map.GetName();
 
-    // Делегируем сборку подобъектов
     json_map["roads"] = SerializeRoads(map);
     json_map["buildings"] = SerializeBuildings(map);
     json_map["offices"] = SerializeOffices(map);
 
-    // --- [ДОБАВЛЕНО] Чистая архитектура: подмешиваем lootTypes из внешнего провайдера ---
     if (auto const* loot_types = loot_info_provider.GetLootTypesForMap(*map.GetId())) {
         json_map["lootTypes"] = *loot_types;
     } else {
-        // Если вдруг в конфигурации пусто, возвращаем пустой массив по спецификации
+        // Если вдруг в конфигурации пусто, возвращаем пустой массив
         json_map["lootTypes"] = boost::json::array{};
     }
 
     return json_map;
 }
 
-// --- [ДОБАВЛЕНО] Функция сериализации потерянных объектов для /api/v1/game/state ---
 boost::json::object SerializeLostObjects(const model::Map::Id& map_id, const model::Game& game) {
     boost::json::object json_lost_objects;
 
@@ -89,7 +85,6 @@ boost::json::object SerializeLostObjects(const model::Map::Id& map_id, const mod
         json_pos.push_back(obj.pos.y);
         json_obj["pos"] = std::move(json_pos);
 
-        // Ключами должны быть строковые представления целочисленных ID
         json_lost_objects[std::to_string(obj_id)] = std::move(json_obj);
     }
 
@@ -159,7 +154,6 @@ bool IsSubpath(std::filesystem::path path, std::filesystem::path base) {
     return true;
 }
 
-// Метод безопасного извлечения токена из заголовка
 std::optional<std::string> RequestHandler::TryExtractToken(const auto& req) const {
     auto auth_it = req.find(boost::beast::http::field::authorization);
     if (auth_it == req.end()) {

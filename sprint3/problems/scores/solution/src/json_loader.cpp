@@ -4,7 +4,7 @@
 #include <iostream>
 #include <string>
 #include <sstream>
-#include <chrono> // Для работы с миллисекундами
+#include <chrono>
 
 namespace json_loader {
 
@@ -103,13 +103,11 @@ ParsedGameData LoadGame(const std::filesystem::path& json_path) {
     }
     game.SetDefaultDogSpeed(default_speed);
 
-    // --- [ДОБАВЛЕНО] Читаем дефолтную вместимость рюкзака из корня JSON (по умолчанию 3) ---
     size_t default_bag_capacity = 3;
     if (root_object.contains("defaultBagCapacity")) {
         default_bag_capacity = static_cast<size_t>(root_object.at("defaultBagCapacity").as_int64());
     }
 
-    // --- [ДОБАВЛЕНО] Читаем глобальные настройки LootGenerator ---
     if (root_object.contains("lootGeneratorConfig")) {
         const auto& gen_config = root_object.at("lootGeneratorConfig").as_object();
         double period = GetDoubleValue(gen_config.at("period"));
@@ -140,7 +138,6 @@ ParsedGameData LoadGame(const std::filesystem::path& json_path) {
                 game_map.SetDogSpeed(default_speed);
             }
 
-            // --- [ДОБАВЛЕНО] Каскадное определение вместимости рюкзака на карте ---
             size_t current_map_bag_capacity = default_bag_capacity;
             if (map_obj.contains("bagCapacity")) {
                 current_map_bag_capacity = static_cast<size_t>(map_obj.at("bagCapacity").as_int64());
@@ -159,11 +156,10 @@ ParsedGameData LoadGame(const std::filesystem::path& json_path) {
                 ParseOffices(game_map, map_obj.at("offices").as_array());
             }
 
-            // --- [ДОБАВЛЕНО] Читаем lootTypes для карты и собираем ценность (value) предметов ---
             if (map_obj.contains("lootTypes")) {
                 const auto& loot_types_array = map_obj.at("lootTypes").as_array();
 
-                // Передаем в модель только количество (для чистой архитектуры)
+                // Передаем в модель только количество
                 game_map.SetLootTypesCount(loot_types_array.size());
 
                 // Парсим ценность (очки) каждого типа лута
@@ -172,17 +168,12 @@ ParsedGameData LoadGame(const std::filesystem::path& json_path) {
 
                 for (const auto& loot_type_val : loot_types_array) {
                     const auto& loot_type_obj = loot_type_val.as_object();
-                    int points = 10; // Дефолтное значение очков, если вдруг поля нет
-                    if (loot_type_obj.contains("value")) {
-                        points = static_cast<int>(loot_type_obj.at("value").as_int64());
-                    }
+                    int points = static_cast<int>(loot_type_obj.at("value").as_int64());
                     loot_values.push_back(points);
                 }
 
-                // Передаем вектор ценностей предметов в модель карты
                 game_map.SetLootValues(std::move(loot_values));
 
-                // Сам JSON массив сохраняем во внешний провайдер
                 loot_info.AddLootTypesForMap(map_id_copy, loot_types_array);
             }
 
@@ -190,7 +181,6 @@ ParsedGameData LoadGame(const std::filesystem::path& json_path) {
         }
     }
 
-    // Возвращаем и игру, и провайдер
     return {std::move(game), std::move(loot_info)};
 }
 

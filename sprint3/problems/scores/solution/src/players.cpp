@@ -17,9 +17,7 @@ std::string PlayerTokens::GenerateToken() {
 }
 
 std::string PlayerTokens::AddPlayer(std::shared_ptr<Player> player) {
-    // Генерируем новый токен
     std::string token = GenerateToken();
-    // Связываем токен с умным указателем на игрока
     token_to_player_[token] = std::move(player);
     return token;
 }
@@ -152,11 +150,10 @@ enum class ProviderItemType {
 
 struct ProviderItemInfo {
     ProviderItemType type;
-    unsigned id;        // ID предмета в map_loot_, если LOST_OBJECT
-    size_t office_idx;  // Индекс офиса в векторе карты, если OFFICE
+    unsigned id;
+    size_t office_idx;
 };
 
-// Реализация интерфейса ItemGathererProvider для нашей игры
 class GameItemGathererProvider : public collision_detector::ItemGathererProvider {
 public:
     std::vector<collision_detector::Item> items;
@@ -174,12 +171,9 @@ public:
 void Application::Tick(double delta_time_seconds) {
     auto& mutable_game = const_cast<model::Game&>(game_);
 
-    // Группируем собак по картам, чтобы считать коллизии изолированно для каждой карты
     std::unordered_map<std::string, std::vector<std::shared_ptr<model::Dog>>> map_to_dogs;
-    // Запоминаем стартовые позиции собак до перемещения
     std::unordered_map<uint32_t, model::Point2D> dog_start_positions;
 
-    // 1. Двигаем всех собак и распределяем по картам
     for (const auto& [id, player] : player_manager_.GetPlayers()) {
         auto dog_ptr = player->GetDog();
         if (!dog_ptr) continue;
@@ -187,16 +181,14 @@ void Application::Tick(double delta_time_seconds) {
         auto map_ptr = game_.FindMap(model::Map::Id{player->GetMapId()});
         if (!map_ptr) continue;
 
-        // Фиксируем стартовую точку до сдвига
         dog_start_positions[dog_ptr->GetId().operator*()] = dog_ptr->GetPosition();
 
-        // Ваша оригинальная функция перемещения по дорогам
         UpdateDogPosition(*dog_ptr, *map_ptr, delta_time_seconds);
 
         map_to_dogs[player->GetMapId()].push_back(dog_ptr);
     }
 
-    // 2. Сбор коллизий отдельно для каждой карты
+    // Сбор коллизий отдельно для каждой карты
     for (const auto& [map_id_str, dogs] : map_to_dogs) {
         model::Map::Id map_id{map_id_str};
         auto map_ptr = game_.FindMap(map_id);
@@ -204,7 +196,6 @@ void Application::Tick(double delta_time_seconds) {
 
         GameItemGathererProvider provider;
 
-        // Наполняем Собирателей (Собак) — по ТЗ радиус равен 0.3
         for (const auto& dog_ptr : dogs) {
             model::Point2D start_pos = dog_start_positions[dog_ptr->GetId().operator*()];
             model::Point2D end_pos = dog_ptr->GetPosition();
@@ -217,12 +208,11 @@ void Application::Tick(double delta_time_seconds) {
             provider.dog_ptrs.push_back(dog_ptr);
         }
 
-        // Наполняем Предметы (Лут на карте) — по ТЗ радиус равен 0.0
         const auto& lost_objects = game_.GetLostObjects(map_id);
         for (const auto& [obj_id, obj] : lost_objects) {
             provider.items.push_back(collision_detector::Item{
                 .position = {obj.pos.x, obj.pos.y},
-                .width = 0.0 // ПОЛОВИНА ШИРИНЫ ПРЕДМЕТА (0.0 / 2)
+                .width = 0.0 // ШИРИНA ПРЕДМЕТА
             });
             provider.item_infos.push_back(ProviderItemInfo{
                 .type = ProviderItemType::LOST_OBJECT,
@@ -231,7 +221,6 @@ void Application::Tick(double delta_time_seconds) {
             });
         }
 
-        // Наполняем Базы (Офисы) — по ТЗ радиус равен 0.25
         const auto& offices = map_ptr->GetOffices();
         for (size_t idx = 0; idx < offices.size(); ++idx) {
             auto office_pos = offices[idx].GetPosition();
@@ -246,14 +235,11 @@ void Application::Tick(double delta_time_seconds) {
             });
         }
 
-        // Запускаем расчёт, если на карте есть и собаки, и объекты
         if (!provider.gatherers.empty() && !provider.items.empty()) {
             auto events = collision_detector::FindGatherEvents(provider);
 
-            // Множество для фиксации лута, уже собранного кем-то в текущем тике
             std::unordered_set<unsigned> collected_in_tick;
 
-            // Обрабатываем события строго хронологически (FindGatherEvents их отсортировала)
             for (const auto& event : events) {
                 auto dog_ptr = provider.dog_ptrs.at(event.gatherer_id);
                 const auto& item_info = provider.item_infos.at(event.item_id);
@@ -268,7 +254,7 @@ void Application::Tick(double delta_time_seconds) {
                     if (lost_objects.contains(obj_id)) {
                         unsigned obj_type = lost_objects.at(obj_id).type;
 
-                        // Добавляем в рюкзак (сохраняя хронологический порядок сбора)
+                        // Добавляем в рюкзак
                         if (dog_ptr->AddToBag(model::BagItem{.id = obj_id, .type = obj_type})) {
                             collected_in_tick.insert(obj_id);
                             // Стираем предмет из игрового мира модели
@@ -277,22 +263,21 @@ void Application::Tick(double delta_time_seconds) {
                     }
                 }
                 else if (item_info.type == ProviderItemType::OFFICE) {
-                    // Собака пересекла бюро находок -> сдаём всё содержимое рюкзака
+                    // Cдаём всё содержимое рюкзака
                     const auto& bag = dog_ptr->GetBag();
                     if (!bag.empty()) {
                         for (const auto& bag_item : bag) {
-                            // Начисляем точные очки в зависимости от типа лута
+                            // Начисляем очки в зависимости от типа лута
                             int item_points = map_ptr->GetLootValue(bag_item.type);
                             dog_ptr->AddScore(item_points);
                         }
-                        dog_ptr->ClearBag(); // Полностью опустошаем рюкзак
+                        dog_ptr->ClearBag(); // Опустошаем рюкзак
                     }
                 }
             }
         }
     }
 
-    // 3. Переводим время в миллисекунды и вызываем стандартный тик генератора лута
     auto delta_ms = std::chrono::milliseconds(static_cast<long long>(delta_time_seconds * 1000.0));
     mutable_game.Tick(delta_ms);
 }

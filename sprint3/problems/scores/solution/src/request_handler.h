@@ -9,14 +9,13 @@
 #include <chrono>
 #include "api_handler.h"
 #include "players.h"
-#include "loot_provider.h" // [ДОБАВЛЕНО] Подключаем провайдер лута
+#include "loot_provider.h"
 
 namespace http_handler {
 namespace beast = boost::beast;
 namespace http = beast::http;
 using namespace std::literals;
 
-// [ОБНОВЛЕНО] Сигнатура принимает провайдер лута для чистой архитектуры
 boost::json::object SerializeMap(const model::Map& map, const app::LootInfoProvider& loot_info_provider);
 
 struct Endpoints {
@@ -73,7 +72,6 @@ private:
 
 class RequestHandler {
 public:
-    // [ОБНОВЛЕНО] Конструктор теперь принимает ссылку на LootInfoProvider
     explicit RequestHandler(model::Game& game,
                             std::filesystem::path static_path,
                             app::Application& app,
@@ -81,7 +79,7 @@ public:
         : game_{game}
         , static_path_{std::move(static_path)}
         , api_handler_{app}
-        , loot_info_{loot_info} {} // Сохраняем ссылку
+        , loot_info_{loot_info} {}
 
     RequestHandler(const RequestHandler&) = delete;
     RequestHandler& operator=(const RequestHandler&) = delete;
@@ -159,7 +157,7 @@ private:
     model::Game& game_;
     std::filesystem::path static_path_;
     ApiHandler api_handler_;
-    const app::LootInfoProvider& loot_info_; // [ДОБАВЛЕНО] Ссылка на провайдер лута
+    const app::LootInfoProvider& loot_info_;
 
     template <typename Body, typename Allocator>
     static http::response<http::string_body> MakeBaseResponse(
@@ -202,7 +200,6 @@ private:
             return MakeBaseResponse(req, http::status::not_found, boost::json::serialize(error_obj));
         }
 
-        // [ОБНОВЛЕНО] Передаем loot_info_ для формирования поля lootTypes
         boost::json::object json_map = SerializeMap(*map, loot_info_);
         return MakeBaseResponse(req, http::status::ok, boost::json::serialize(json_map));
     }

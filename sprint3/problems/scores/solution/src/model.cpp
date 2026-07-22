@@ -101,11 +101,7 @@ void Game::Tick(std::chrono::milliseconds delta_time) {
     for (const auto& map : maps_) {
         const auto& map_id = map.GetId();
 
-        // Ленивая инициализация генератора, если его еще нет для карты
         if (!map_generators_.contains(map_id)) {
-            // [ИСПРАВЛЕНО] Вместо случайного распределения возвращаем 1.0
-            // Это гарантирует, что LootGenerator будет работать строго по формуле времени из конфига,
-            // как этого ожидают автоматические тесты Яндекса.
             auto rand_fn = []() {
                 return 1.0;
             };

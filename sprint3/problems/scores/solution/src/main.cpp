@@ -106,7 +106,6 @@ int main(int argc, const char* argv[]) {
 
     std::cout << "{\"message\": \"server started\", \"data\": {\"port\": 8080, \"address\": \"0.0.0.0\"}}" << std::endl;
 
-    // --- [ОБНОВЛЕНО] Работаем со структурой ParsedGameData вместо чистой модели Game ---
     std::optional<json_loader::ParsedGameData> parsed_data_opt;
 
     try {
@@ -122,7 +121,7 @@ int main(int argc, const char* argv[]) {
         parsed_data_opt = std::move(fallback);
     }
 
-    // Извлекаем ссылки на игру и провайдер фронтенд-данных о предметах
+    // Извлекаем ссылки на игру и провайдер данных о предметах
     model::Game& game = parsed_data_opt->game;
     const app::LootInfoProvider& loot_info = parsed_data_opt->loot_info;
 
@@ -134,7 +133,6 @@ int main(int argc, const char* argv[]) {
             app.SetAutomaticTicking(true);
         }
 
-        // --- [ДОБАВЛЕНО] Регистрируем связь слоев: модель теперь знает, как считать собак через App ---
         game.SetDogCountCallback([&app](const model::Map::Id& map_id) {
             return app.GetDogCountOnMap(*map_id);
         });
@@ -150,8 +148,6 @@ int main(int argc, const char* argv[]) {
 
         // Если передан параметр --tick-period, запускаем автоматический таймер тиков
         if (args_opt->tick_period.has_value()) {
-            // [ОБНОВЛЕНО] Оставляем только один вызов app.Tick
-            // Логика генерации предметов game_.Tick() уже инкапсулирована внутри метода Application::Tick
             app::Ticker::Handler tick_handler = [&app](std::chrono::milliseconds delta) {
                 app.Tick(static_cast<double>(delta.count()) / 1000.0);
             };
@@ -164,7 +160,6 @@ int main(int argc, const char* argv[]) {
             ticker->Start();
         }
 
-        // --- [ОБНОВЛЕНО] Передаем loot_info в RequestHandler четвертым аргументом ---
         auto handler = std::make_shared<http_handler::RequestHandler>(
             game, std::filesystem::path(args_opt->www_root), app, loot_info
             );
