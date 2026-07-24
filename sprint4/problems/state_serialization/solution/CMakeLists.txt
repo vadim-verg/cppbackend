@@ -7,8 +7,8 @@ if(WIN32)
     add_compile_definitions(BOOST_LOG_USE_STATIC_LIBS)
     add_compile_definitions(BOOST_ALL_NO_LIB)
 else()
-    # На Linux для Конана правильнее использовать динамическую или стандартную линковку
-    add_compile_definitions(BOOST_LOG_DYN_LINK)
+    # На Linux принудительно линкуем статический Boost.Log, как собрал Конан
+    add_compile_definitions(BOOST_LOG_USE_STATIC_LIBS)
 endif()
 
 # Стандарт C++20
@@ -74,11 +74,10 @@ if(WIN32)
         mswsock
     )
 else()
-    # Линкуем монолитный Буст Конана, 
-    # а также через переменные Конана подключаем скомпилированную статическую либу boost_program_options
+    # Линкуем через прямые таргеты компонентов Конана, чтобы линкер строго соблюдал порядок
     target_link_libraries(game_server PRIVATE 
         CONAN_PKG::boost
-        ${CONAN_LIBS_BOOST}
+        CONAN_LIBS
         Threads::Threads
     )
 endif()
