@@ -1,14 +1,14 @@
 cmake_minimum_required(VERSION 3.15)
 project(game_server CXX)
 
-# Конфигурация макросов для Boost.Log
+# Конфигурация макросов для Boost
 if(WIN32)
     add_compile_definitions(_WIN32_WINNT=0x0A00)
     add_compile_definitions(BOOST_LOG_USE_STATIC_LIBS)
     add_compile_definitions(BOOST_ALL_NO_LIB)
 else()
-    # Запрещаем автолинковку на Linux
-    add_compile_definitions(BOOST_LOG_NO_LIB)
+    # На Linux для Конана правильнее использовать динамическую или стандартную линковку
+    add_compile_definitions(BOOST_LOG_DYN_LINK)
 endif()
 
 # Стандарт C++20

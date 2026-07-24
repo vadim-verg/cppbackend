@@ -142,7 +142,7 @@ public:
 
     PlayerTokens& GetPlayerTokensMutable() { return player_tokens_; }
 
-    bool PopShouldSaveState() {
+    bool PopShouldSaveState() const {
         bool res = should_save_state_;
         should_save_state_ = false;
         return res;
@@ -174,7 +174,7 @@ private:
 
     bool randomize_spawn_ = false;
     bool auto_ticking_ = false;
-        bool should_save_state_ = false;
+    mutable bool should_save_state_ = false;
 
     std::optional<std::string> state_file_;
     std::optional<std::chrono::milliseconds> save_state_period_;
