@@ -11,8 +11,8 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-# СТРОГО ПО ИНСТРУКЦИИ: Устанавливаем Conan конкретной версии 1.52.0
-RUN pip3 install conan==1.52.0
+# СТРОГО ПО ИНСТРУКЦИИ: Устанавливаем Conan конкретной версии
+RUN pip3 install conan==1.59.0
 
 # Копируем проект
 COPY . /app
