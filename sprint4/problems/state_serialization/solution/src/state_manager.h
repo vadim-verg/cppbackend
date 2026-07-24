@@ -45,7 +45,7 @@ public:
 
             // 3. Сохраняем игроков и их собак
             const auto& pm = app.GetPlayerManager();
-            repr.next_player_id = pm.GetNextIdInternal(); // Добавьте геттер для next_id_ в PlayerManager если нужно
+            repr.next_player_id = pm.GetNextIdInternal();
 
             for (const auto& [player_id, player_ptr] : pm.GetPlayers()) {
                 serialization::PlayerRepr p_repr;
@@ -54,7 +54,10 @@ public:
                 p_repr.map_id = player_ptr->GetMapId();
 
                 if (auto dog_ptr = player_ptr->GetDog()) {
-                    p_repr.dog = serialization::DogRepr(*dog_ptr);
+                    p_repr.has_dog = true;                      // Собака есть
+                    p_repr.dog = serialization::DogRepr(*dog_ptr); // Делаем её снимок
+                } else {
+                    p_repr.has_dog = false;                     // Собаки нет
                 }
                 repr.players.push_back(p_repr);
             }
@@ -114,10 +117,13 @@ public:
 
             for (const auto& p_repr : repr.players) {
                 std::shared_ptr<model::Dog> dog_ptr = nullptr;
-                if (p_repr.dog) {
-                    // Восстанавливаем собаку и оборачиваем в shared_ptr
-                    dog_ptr = std::make_shared<model::Dog>(p_repr.dog->Restore());
-                    // Дополнительно обновляем счетчик собак на карте в Game (если используется)
+
+                // Проверяем флаг вместо std::optional
+                if (p_repr.has_dog) {
+                    // Восстанавливаем собаку
+                    dog_ptr = std::make_shared<model::Dog>(p_repr.dog.Restore());
+
+                    // Обновляем счетчик собак на карте в модели
                     game.SetDogCount(model::Map::Id{p_repr.map_id}, game.GetDogCount(model::Map::Id{p_repr.map_id}) + 1);
                 }
 

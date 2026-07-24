@@ -121,13 +121,15 @@ struct PlayerRepr {
     uint32_t id;
     std::string name;
     std::string map_id;
-    std::optional<DogRepr> dog; // Собака может отсутствовать, если игрок еще не заспавнился
+    bool has_dog = false;
+    DogRepr dog;
 
     template <typename Archive>
     void serialize(Archive& ar, [[maybe_unused]] const unsigned version) {
         ar & id;
         ar & name;
         ar & map_id;
+        ar & has_dog;
         ar & dog;
     }
 };
