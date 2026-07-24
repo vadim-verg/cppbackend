@@ -7,7 +7,7 @@ if(WIN32)
     add_compile_definitions(BOOST_LOG_USE_STATIC_LIBS)
     add_compile_definitions(BOOST_ALL_NO_LIB)
 else()
-    # На Linux принудительно линкуем статический Boost.Log, как собрал Конан
+    # На Linux принудительно линкуем статический Boost.Log, как его собирает Конан
     add_compile_definitions(BOOST_LOG_USE_STATIC_LIBS)
 endif()
 
@@ -22,20 +22,20 @@ else()
     add_compile_options(-Wall -Wextra)
 endif()
 
-# Интеграция с Конаном (Работает и в Linux Docker, и на Windows)
+# Интеграция с Конаном (Кроссплатформенный выбор файлов)
 if(EXISTS "${CMAKE_BINARY_DIR}/conanbuildinfo_multi.cmake")
     include("${CMAKE_BINARY_DIR}/conanbuildinfo_multi.cmake")
 else()
     include("${CMAKE_BINARY_DIR}/conanbuildinfo.cmake")
 endif()
 
-# Инициализация таргетов Конана
+# Создаем современные таргеты Conan
 conan_basic_setup(TARGETS)
 
 # Находим системные потоки Linux
 find_package(Threads REQUIRED)
 
-# Цель сборки
+# Цель сборки (Все ваши исходные файлы)
 add_executable(game_server
     src/api_handler.cpp
     src/api_handler.h
@@ -74,10 +74,13 @@ if(WIN32)
         mswsock
     )
 else()
-    # Линкуем через прямые таргеты компонентов Конана, чтобы линкер строго соблюдал порядок
+    # КРИТИЧЕСКИЙ ФИКС ДЛЯ LINUX:
+    # Подключаем глобальный таргет Конана CONAN_PKG::boost, но дополнительно
+    # раскрываем переменную CONAN_LIBS, чтобы линкер увидел скомпилированные 
+    # компоненты boost_log и boost_serialization в правильном порядке.
     target_link_libraries(game_server PRIVATE 
         CONAN_PKG::boost
-        CONAN_LIBS
+        ${CONAN_LIBS}
         Threads::Threads
     )
 endif()
