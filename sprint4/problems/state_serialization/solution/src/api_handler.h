@@ -4,6 +4,7 @@
 #include <boost/json.hpp>
 #include <string_view>
 #include <optional>
+#include <memory.h>
 #include "model.h"
 #include "players.h"
 #include "json_loader.h"
