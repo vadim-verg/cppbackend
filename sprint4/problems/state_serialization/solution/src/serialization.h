@@ -1,5 +1,6 @@
 #pragma once
 
+#include <boost/serialization/optional.hpp>
 #include <boost/serialization/vector.hpp>
 #include <boost/serialization/unordered_map.hpp>
 #include <boost/serialization/string.hpp>
