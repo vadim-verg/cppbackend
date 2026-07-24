@@ -22,13 +22,16 @@ else()
     add_compile_options(-Wall -Wextra)
 endif()
 
-# Интеграция с Conan
-if(EXISTS "${CMAKE_BINARY_DIR}/conanbuildinfo_multi.cmake")
-    include("${CMAKE_BINARY_DIR}/conanbuildinfo_multi.cmake")
-elseif(EXISTS "${CMAKE_BINARY_DIR}/conanbuildinfo.cmake")
-    include("${CMAKE_BINARY_DIR}/conanbuildinfo.cmake")
+# Интеграция с Conan (Исправлено под Linux Docker и Windows)
+if(WIN32)
+    if(EXISTS "${CMAKE_BINARY_DIR}/conanbuildinfo_multi.cmake")
+        include("${CMAKE_BINARY_DIR}/conanbuildinfo_multi.cmake")
+    else()
+        include("${CMAKE_BINARY_DIR}/conanbuildinfo.cmake")
+    endif()
 else()
-    message(FATAL_ERROR "Conan build info not found! Run 'conan install' first.")
+    # В Linux Docker всегда генерируется только conanbuildinfo.cmake
+    include("${CMAKE_BINARY_DIR}/conanbuildinfo.cmake")
 endif()
 
 # Создаем современные таргеты Conan
