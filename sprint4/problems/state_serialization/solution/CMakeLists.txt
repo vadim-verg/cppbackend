@@ -22,19 +22,14 @@ else()
     add_compile_options(-Wall -Wextra)
 endif()
 
-# Интеграция с Conan (Исправлено под Linux Docker и Windows)
-if(WIN32)
-    if(EXISTS "${CMAKE_BINARY_DIR}/conanbuildinfo_multi.cmake")
-        include("${CMAKE_BINARY_DIR}/conanbuildinfo_multi.cmake")
-    else()
-        include("${CMAKE_BINARY_DIR}/conanbuildinfo.cmake")
-    endif()
+# Интеграция с Конаном (Работает и в Linux Docker, и на Windows)
+if(EXISTS "${CMAKE_BINARY_DIR}/conanbuildinfo_multi.cmake")
+    include("${CMAKE_BINARY_DIR}/conanbuildinfo_multi.cmake")
 else()
-    # В Linux Docker всегда генерируется только conanbuildinfo.cmake
     include("${CMAKE_BINARY_DIR}/conanbuildinfo.cmake")
 endif()
 
-# Создаем современные таргеты Conan
+# Инициализация таргетов Конана
 conan_basic_setup(TARGETS)
 
 # Находим системные потоки Linux
