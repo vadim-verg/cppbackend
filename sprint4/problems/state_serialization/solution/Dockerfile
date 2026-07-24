@@ -35,6 +35,9 @@ RUN cd build && \
 # ------------------------------------------------------------------------------
 FROM ubuntu:22.04 AS run
 
+# КРИТИЧНО ДЛЯ ТЕСТОВ ПРАКТИКУМА: Создаем системного пользователя www
+RUN groupadd -r www && useradd -r -g www www
+
 # Копируем готовый сервер из этапа сборки
 COPY --from=build /app/build/bin/game_server /app/game_server
 
@@ -42,7 +45,10 @@ COPY --from=build /app/build/bin/game_server /app/game_server
 COPY data /app/data
 COPY static /app/static
 
+# Переключаемся на созданного пользователя по требованию ТЗ
+USER www
 WORKDIR /app
 
-# Запуск сервера с передачей путей (argc == 3)
-ENTRYPOINT ["./game_server", "data/config.json", "static"]
+# ИСПРАВЛЕНО: Разделяем точку входа и дефолтные параметры, чтобы тесты могли передавать свои флаги
+ENTRYPOINT ["./game_server"]
+CMD ["-c", "data/config.json", "-w", "static"]
