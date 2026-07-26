@@ -2,4 +2,4 @@
 libpqxx/7.7.4
 
 [generators]
-cmake_multi 
+cmake_multi
