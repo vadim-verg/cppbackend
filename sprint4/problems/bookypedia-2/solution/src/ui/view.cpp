@@ -6,6 +6,7 @@
 #include <sstream>
 #include <set>
 #include <optional>
+#include <algorithm>
 
 #include "../app/use_cases.h"
 #include "../menu/menu.h"
@@ -15,7 +16,6 @@ namespace ph = std::placeholders;
 
 namespace ui {
 
-// Вынесли операторы напрямую в namespace ui, чтобы их видел компилятор
 std::ostream& operator<<(std::ostream& out, const detail::AuthorInfo& author) {
     out << author.name;
     return out;
@@ -64,6 +64,7 @@ std::vector<std::string> ParseAndNormalizeTags(const std::string& input_tags) {
             result.push_back(normalized_tag);
         }
     }
+    std::sort(result.begin(), result.end()); // Сортируем теги по алфавиту
     return result;
 }
 
@@ -122,6 +123,7 @@ bool View::EditAuthor(std::istream& cmd_input) const {
 
             PrintVectorWithoutDot(output_, authors);
             output_ << "Enter author # or empty line to cancel" << std::endl;
+            output_ << std::flush;
 
             std::string choice;
             if (!std::getline(input_, choice) || choice.empty()) return true;
@@ -135,6 +137,7 @@ bool View::EditAuthor(std::istream& cmd_input) const {
         }
 
         output_ << "Enter new name:" << std::endl;
+        output_ << std::flush;
         std::string new_name;
         if (!std::getline(input_, new_name)) return true;
         boost::algorithm::trim(new_name);
@@ -175,6 +178,7 @@ bool View::DeleteAuthor(std::istream& cmd_input) const {
             
             PrintVectorWithoutDot(output_, authors);
             output_ << "Enter author # or empty line to cancel" << std::endl;
+            output_ << std::flush;
 
             std::string str;
             if (!std::getline(input_, str) || str.empty()) return true;
@@ -215,8 +219,7 @@ bool View::AddBook(std::istream& cmd_input) const {
         auto uow = uow_factory_.MakeUnitOfWork();
 
         output_ << "Enter author name or empty line to select from list:" << std::endl;
-        output_ << std::flush; // ВАЖНО: сбрасываем буфер потока
-
+        output_ << std::flush;
         std::string author_name;
         if (!std::getline(input_, author_name)) return true;
         boost::algorithm::trim(author_name);
@@ -225,17 +228,12 @@ bool View::AddBook(std::istream& cmd_input) const {
 
         if (author_name.empty()) {
             author_id = SelectAuthor(*uow);
-            if (!author_id) {
-                // Если выбор автора отменен, сообщение "Failed to add book" выводить НЕ нужно, 
-                // так как метод SelectAuthor сам обрабатывает отмену. Просто выходим.
-                return true;
-            }
+            if (!author_id) return true;
         } else {
             auto author = use_cases_.FindAuthorByName(*uow, author_name);
             if (!author) {
                 output_ << "No author found. Do you want to add " << author_name << " (y/n)?" << std::endl;
-                output_ << std::flush; // ВАЖНО: сбрасываем буфер потока
-
+                output_ << std::flush;
                 std::string answer;
                 if (!std::getline(input_, answer)) return true;
                 boost::algorithm::trim(answer);
@@ -244,16 +242,13 @@ bool View::AddBook(std::istream& cmd_input) const {
                     output_ << "Failed to add book" << std::endl;
                     return true;
                 }
-                // Если ответил "y" — author_id остается std::nullopt. 
-                // Это знак для UseCases, что автора нужно создать с нуля.
             } else {
                 author_id = author->GetId().ToString();
             }
         }
 
         output_ << "Enter tags (comma separated):" << std::endl;
-        output_ << std::flush; // ВАЖНО: сбрасываем буфер потока
-
+        output_ << std::flush;
         std::string raw_tags;
         if (!std::getline(input_, raw_tags)) return true;
         std::vector<std::string> tags = ParseAndNormalizeTags(raw_tags);
@@ -277,7 +272,6 @@ bool View::ShowBook(std::istream& cmd_input) const {
         boost::algorithm::trim(title);
 
         auto uow = uow_factory_.MakeUnitOfWork();
-
         auto found_books = use_cases_.FindDetailedBooks(*uow, title);
         if (found_books.empty()) return true;
 
@@ -292,11 +286,9 @@ bool View::ShowBook(std::istream& cmd_input) const {
         if (!tags.empty()) {
             output_ << "Tags: ";
             for (size_t i = 0; i < tags.size(); ++i) {
-                output_ << tags[i];
 
-        if (i + 1 < tags.size()) {
-            output_ << ", ";
-        }
+        output_ << tags[i];
+        if (i + 1 < tags.size()) output_ << ", ";
     }
     output_ << std::endl;
 }
@@ -312,9 +304,8 @@ bool View::EditBook(std::istream& cmd_input) const {
         boost::algorithm::trim(title);
 
         auto uow = uow_factory_.MakeUnitOfWork();
-        
-        // ИСПРАВЛЕНИЕ: Если название пустое, запрашиваем ВСЕ книги из базы для списка выбора
         std::vector<domain::BookDetailed> found_books;
+
         if (title.empty()) {
             found_books = use_cases_.FindDetailedBooks(*uow, ""s);
         } else {
@@ -328,19 +319,15 @@ bool View::EditBook(std::istream& cmd_input) const {
         auto target_book = SelectBookFromList(*uow, found_books);
         if (!target_book) return true;
 
-        output_ << "Enter new title or empty line to use the current one (" 
-                << target_book->title << "):" << std::endl;
-        output_ << std::flush; // ВАЖНО: сбрасываем буфер для тестера Python
-
+        output_ << "Enter new title or empty line to use the current one (" << target_book->title << "):" << std::endl;
+        output_ << std::flush;
         std::string new_title;
         if (!std::getline(input_, new_title)) return true;
         boost::algorithm::trim(new_title);
         if (new_title.empty()) new_title = target_book->title;
 
-        output_ << "Enter publication year or empty line to use the current one (" 
-                << target_book->publication_year << "):" << std::endl;
-        output_ << std::flush; // ВАЖНО: сбрасываем буфер для тестера Python
-
+        output_ << "Enter publication year or empty line to use the current one (" << target_book->publication_year << "):" << std::endl;
+        output_ << std::flush;
         std::string new_year_str;
         if (!std::getline(input_, new_year_str)) return true;
         boost::algorithm::trim(new_year_str);
@@ -353,7 +340,7 @@ bool View::EditBook(std::istream& cmd_input) const {
             if (i + 1 < current_tags.size()) output_ << ", ";
         }
         output_ << "):" << std::endl;
-        output_ << std::flush; // ВАЖНО: сбрасываем буфер для тестера Python
+        output_ << std::flush;
 
         std::string raw_tags;
         if (!std::getline(input_, raw_tags)) return true;
@@ -378,7 +365,6 @@ bool View::DeleteBook(std::istream& cmd_input) const {
 
         auto uow = uow_factory_.MakeUnitOfWork();
         auto found_books = use_cases_.FindDetailedBooks(*uow, title);
-
         if (found_books.empty()) {
             output_ << "Book not found" << std::endl;
             return true;
@@ -414,16 +400,16 @@ bool View::ShowBooks() const {
 
 std::optional<domain::BookDetailed> View::SelectBookFromList(app::UnitOfWork& uow, const std::vector<domain::BookDetailed>& books) const {
     if (books.empty()) return std::nullopt;
-    
-    // ИСПРАВЛЕНИЕ: Возвращаем ПЕРВЫЙ элемент вектора, а не весь вектор!
+
+    // ФИКС ОПЕЧАТКИ: Возвращаем первый элемент (books[0]), а не весь вектор!
     if (books.size() == 1) return books[0];
 
     std::vector<detail::BookInfo> sel_list;
     for (const auto& b : books) {
         sel_list.push_back({b.title, b.author_name, b.publication_year});
     }
-    PrintVectorWithoutDot(output_, sel_list);
 
+    PrintVectorWithoutDot(output_, sel_list);
     output_ << "Enter the book # or empty line to cancel:" << std::endl;
     output_ << std::flush;
 
@@ -477,7 +463,7 @@ std::vector<detail::AuthorInfo> View::GetAuthors(app::UnitOfWork& uow) const {
 std::vector<detail::BookInfo> View::GetBooks(app::UnitOfWork& uow) const {
     std::vector<detail::BookInfo> dst_books;
     for (const auto& book : use_cases_.GetBooksWithAuthors(uow)) {
-        dst_books.push_back({book.title, book.author_name, book.publication_year});
+        dst_books.push_back({book.title, b.author_name, book.publication_year});
     }
     return dst_books;
 }

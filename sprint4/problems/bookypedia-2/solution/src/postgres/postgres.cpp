@@ -183,7 +183,7 @@ CREATE TABLE IF NOT EXISTS books (
 CREATE TABLE IF NOT EXISTS book_tags (
     book_id UUID NOT NULL REFERENCES books(id) ON DELETE CASCADE,
     tag varchar(30) NOT NULL,
-    PRIMARY KEY (book_id, tag)
+    PRIMARY KEY (tag, book_id)
 );
 )"_zv);
 
