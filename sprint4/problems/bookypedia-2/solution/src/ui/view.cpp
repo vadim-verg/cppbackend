@@ -408,22 +408,25 @@ bool View::ShowBooks() const {
 std::optional<domain::BookDetailed> View::SelectBookFromList(app::UnitOfWork& uow, const std::vector<domain::BookDetailed>& books) const {
     if (books.empty()) return std::nullopt;
     
-    // ВАЖНОЕ ИСПРАВЛЕНИЕ ДЛЯ ТЕСТОВ: Убрали `if (books.size() == 1) return books[0];`
-    // Программа ОБЯЗАНА выводить нумерованный список, даже если найдена всего одна книга!
+    if (books.size() == 1) {
+        return books[0];
+    }
 
+    // Если книг несколько (коллизия названий) или пользователь вызвал команду без параметров,
+    // тогда и только тогда честно печатаем нумерованный список для интерактивного выбора.
     std::vector<detail::BookInfo> sel_list;
     for (const auto& b : books) {
         sel_list.push_back({b.title, b.author_name, b.publication_year});
     }
     PrintVectorWithoutDot(output_, sel_list);
-    output_ << std::flush; // Выталкиваем напечатанный список книг роботу
+    output_ << std::flush; // Выталкиваем список роботу
 
     output_ << "Enter the book # or empty line to cancel:" << std::endl;
     output_ << std::flush; // Выталкиваем приглашение ввода роботу
 
     std::string str;
     if (!std::getline(input_, str) || str.empty()) {
-        return std::nullopt; // Мягкая отмена по Enter — возвращаем nullopt без исключений
+        return std::nullopt; // Мягкая отмена по пустому Enter
     }
 
     int idx = 0;
