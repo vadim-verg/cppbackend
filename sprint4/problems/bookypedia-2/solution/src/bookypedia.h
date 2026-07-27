@@ -3,6 +3,7 @@
 
 #include "app/use_cases_impl.h"
 #include "postgres/postgres.h"
+#include "postgres/postgres_unit_of_work.h" // Подключаем созданный Unit of Work
 
 namespace bookypedia {
 

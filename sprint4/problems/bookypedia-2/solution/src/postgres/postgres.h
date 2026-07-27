@@ -48,8 +48,9 @@ class Database {
 public:
     explicit Database(pqxx::connection connection);
 
-    // В текущей архитектуре Unit of Work класс Database больше сам не создаёт репозитории в полях,
-    // так как они теперь создаются динамически внутри UnitOfWorkImpl на каждую транзакцию.
+    pqxx::connection& GetConnection() {
+        return connection_;
+    }
 
 private:
     pqxx::connection connection_;
