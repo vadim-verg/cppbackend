@@ -77,7 +77,7 @@ bool View::AddBook(std::istream& cmd_input) const {
 }
 
 bool View::ShowAuthors() const {
-    PrintVectorWithDot(output_, GetAuthors());
+    PrintVectorWithoutDot(output_, GetAuthors());
     return true;
 }
 
