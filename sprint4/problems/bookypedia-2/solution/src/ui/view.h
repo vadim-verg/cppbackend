@@ -27,7 +27,6 @@ struct AuthorInfo {
     std::string name;
 };
 
-// Обновленная структура: добавлено имя автора для вывода "Book by Author, Year"
 struct BookInfo {
     std::string title;
     std::string author_name;
@@ -59,6 +58,12 @@ private:
     
     std::vector<detail::AuthorInfo> GetAuthors() const;
     std::vector<detail::BookInfo> GetBooks() const;
+
+    // ПРИВАТНЫЕ ПОЛЯ, КОТОРЫХ НЕ ХВАТАЛО:
+    menu::Menu& menu_;
+    app::UseCases& use_cases_;
+    std::istream& input_;
+    std::ostream& output_;
 };
 
 }  // namespace ui
