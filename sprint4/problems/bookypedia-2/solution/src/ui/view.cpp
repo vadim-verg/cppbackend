@@ -415,7 +415,7 @@ bool View::ShowBooks() const {
 std::optional<domain::BookDetailed> View::SelectBookFromList(app::UnitOfWork& uow, const std::vector<domain::BookDetailed>& books) const {
     if (books.empty()) return std::nullopt;
     
-    // ИСПРАВЛЕНИЕ 1: Если книга ровно одна, возвращаем именно её (первый элемент), а не весь вектор!
+    // ИСПРАВЛЕНИЕ: Возвращаем ПЕРВЫЙ элемент вектора (конкретную книгу), а не весь вектор!
     if (books.size() == 1) return books[0];
 
     std::vector<detail::BookInfo> sel_list;
@@ -428,10 +428,7 @@ std::optional<domain::BookDetailed> View::SelectBookFromList(app::UnitOfWork& uo
     output_ << std::flush;
 
     std::string str;
-    if (!std::getline(input_, str) || str.empty()) {
-        // ИСПРАВЛЕНИЕ 2: При пустой строке возвращаем nullopt без генерации исключений (мягкая отмена)
-        return std::nullopt; 
-    }
+    if (!std::getline(input_, str) || str.empty()) return std::nullopt;
 
     int idx = 0;
     try {
@@ -451,14 +448,20 @@ std::optional<std::string> View::SelectAuthor(app::UnitOfWork& uow) const {
     auto authors = GetAuthors(uow);
     PrintVectorWithoutDot(output_, authors);
     output_ << "Enter author # or empty line to cancel" << std::endl;
-    output_ << std::flush; // ЯВНО ВЫТАЛКИВАЕМ СТРОКУ ДЛЯ ТЕСТЕРА PYTHON
+    output_ << std::flush;
 
     std::string str;
     if (!std::getline(input_, str) || str.empty()) return std::nullopt;
 
-    int author_idx = std::stoi(str) - 1;
+    int author_idx = 0;
+    try {
+        author_idx = std::stoi(str) - 1;
+    } catch (...) {
+        return std::nullopt;
+    }
+
     if (author_idx < 0 || author_idx >= static_cast<int>(authors.size())) {
-        throw std::runtime_error("Invalid author num");
+        return std::nullopt; // Никаких runtime_error, возвращаем nullopt для отмены
     }
     return authors[author_idx].id;
 }

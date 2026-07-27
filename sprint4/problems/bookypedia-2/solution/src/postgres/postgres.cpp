@@ -126,7 +126,7 @@ std::vector<domain::BookDetailed> BookRepositoryImpl::FindDetailedBooks(const st
 }
 
 std::vector<std::string> BookRepositoryImpl::GetBookTags(const std::string& book_id) {
-
+    // ORDER BY tag ASC обязателен для прохождения тестов на сравнение списков тегов!
     auto rows = work_.exec_params("SELECT tag FROM book_tags WHERE book_id = $1 ORDER BY tag ASC;"_zv, book_id);
     std::vector<std::string> tags;
     for (const auto& row : rows) {
