@@ -417,12 +417,11 @@ bool View::ShowBooks() const {
 std::optional<domain::BookDetailed> View::SelectBookFromList(app::UnitOfWork& uow, const std::vector<domain::BookDetailed>& books) const {
     if (books.empty()) return std::nullopt;
     
-
     if (books.size() == 1) {
         return books[0]; 
     }
 
-    // Если книг несколько (коллизия названий) или вызвано без параметров — выводим список
+    // Если книг несколько (коллизия названий) или название не указано — выводим список
     std::vector<detail::BookInfo> sel_list;
     for (const auto& b : books) {
         sel_list.push_back({b.title, b.author_name, b.publication_year});
