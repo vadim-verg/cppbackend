@@ -364,14 +364,21 @@ bool View::DeleteBook(std::istream& cmd_input) const {
         boost::algorithm::trim(title);
 
         auto uow = uow_factory_.MakeUnitOfWork();
+        
+        // Получаем книги по названию
         auto found_books = use_cases_.FindDetailedBooks(*uow, title);
         if (found_books.empty()) {
             output_ << "Book not found" << std::endl;
             return true;
         }
 
+        // Интерактивный или автоматический выбор книги из списка
         auto target_book = SelectBookFromList(*uow, found_books);
-        if (!target_book) return true;
+        if (!target_book) {
+            // Если пользователь нажал Enter для отмены — просто тихо выходим по ТЗ, 
+            // ничего не выводя в консоль
+            return true; 
+        }
 
         if (use_cases_.DeleteBookById(*uow, target_book->id)) {
             uow->Commit();
@@ -400,18 +407,17 @@ bool View::ShowBooks() const {
 
 std::optional<domain::BookDetailed> View::SelectBookFromList(app::UnitOfWork& uow, const std::vector<domain::BookDetailed>& books) const {
     if (books.empty()) return std::nullopt;
-
-    // ФИКС ОПЕЧАТКИ: Возвращаем первый элемент (books[0]), а не весь вектор!
+    
     if (books.size() == 1) return books[0];
 
     std::vector<detail::BookInfo> sel_list;
     for (const auto& b : books) {
         sel_list.push_back({b.title, b.author_name, b.publication_year});
     }
-
     PrintVectorWithoutDot(output_, sel_list);
+
     output_ << "Enter the book # or empty line to cancel:" << std::endl;
-    output_ << std::flush;
+    output_ << std::flush; // Гарантируем отправку строки тестеру Python
 
     std::string str;
     if (!std::getline(input_, str) || str.empty()) return std::nullopt;
