@@ -367,17 +367,18 @@ bool View::ShowBooks() const {
 std::optional<domain::BookDetailed> View::SelectBookFromList(const std::vector<domain::BookDetailed>& books) const {
     if (books.empty()) return std::nullopt;
     if (books.size() == 1) return books[0];
-    
-    std::vector<detail::BookSelectionInfo> sel_list;
+
+    // Изменено: используем правильный тип detail::BookInfo
+    std::vector<detail::BookInfo> sel_list;
     for (const auto& b : books) {
         sel_list.push_back({b.title, b.author_name, b.publication_year});
     }
     PrintVectorWithoutDot(output_, sel_list);
-    
+
     output_ << "Enter the book # or empty line to cancel:" << std::endl;
     std::string str;
     if (!std::getline(input_, str) || str.empty()) return std::nullopt;
-    
+
     int idx = std::stoi(str) - 1;
     if (idx < 0 || idx >= static_cast<int>(books.size())) {
         throw std::runtime_error("Invalid book selection");
