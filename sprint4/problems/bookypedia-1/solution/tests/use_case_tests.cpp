@@ -36,15 +36,14 @@ struct MockBookRepository : domain::BookRepository {
 
 struct Fixture {
     MockAuthorRepository authors;
-    MockBookRepository books; // Добавляем мок для книг
-    app::UseCasesImpl use_cases{authors, books}; // Передаем оба мока в конструктор
+    MockBookRepository books;
+    app::UseCasesImpl use_cases{authors, books};
 };
 
 }  // namespace
 
 TEST_CASE_METHOD(Fixture, "UseCases") {
     SECTION("AddAuthor") {
-        BOOST_CONCEPT_ASSERT((int)1); // Заглушка, чтобы секция не была пустой
         // Проверяем, что изначально авторов нет
         CHECK(authors.saved_authors.empty());
 
