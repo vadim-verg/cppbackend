@@ -415,7 +415,7 @@ bool View::ShowBooks() const {
 std::optional<domain::BookDetailed> View::SelectBookFromList(app::UnitOfWork& uow, const std::vector<domain::BookDetailed>& books) const {
     if (books.empty()) return std::nullopt;
     
-    // ИСПРАВЛЕНИЕ: Возвращаем ПЕРВЫЙ элемент вектора (конкретную книгу), а не весь вектор!
+    // ИСПРАВЛЕНИЕ: Возвращаем ПЕРВЫЙ элемент вектора, а не весь вектор!
     if (books.size() == 1) return books[0];
 
     std::vector<detail::BookInfo> sel_list;
@@ -461,7 +461,7 @@ std::optional<std::string> View::SelectAuthor(app::UnitOfWork& uow) const {
     }
 
     if (author_idx < 0 || author_idx >= static_cast<int>(authors.size())) {
-        return std::nullopt; // Никаких runtime_error, возвращаем nullopt для отмены
+        return std::nullopt;
     }
     return authors[author_idx].id;
 }

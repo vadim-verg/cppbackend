@@ -145,7 +145,11 @@ bool BookRepositoryImpl::DeleteBook(const std::string& book_id) {
 }
 
 bool BookRepositoryImpl::EditBook(const std::string& book_id, const std::string& new_title, int new_year) {
-    auto result = work_.exec_params("UPDATE books SET title = $1, publication_year = $2 WHERE id = $3;"_zv, new_title, new_year, book_id);
+    // Обновляем название и год публикации книги по её уникальному ID
+    auto result = work_.exec_params(
+        "UPDATE books SET title = $1, publication_year = $2 WHERE id = $3;"_zv,
+        new_title, new_year, book_id
+    );
     return result.affected_rows() > 0;
 }
 
