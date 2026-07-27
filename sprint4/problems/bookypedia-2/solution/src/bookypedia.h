@@ -20,7 +20,7 @@ public:
 private:
     postgres::Database db_;
     postgres::UnitOfWorkFactoryImpl uow_factory_{db_.GetConnection()};
-    app::UseCasesImpl use_cases_{uow_factory_};
+    app::UseCasesImpl use_cases_;
 };
 
 }  // namespace bookypedia

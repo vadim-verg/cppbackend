@@ -21,14 +21,19 @@ std::ostream& operator<<(std::ostream& out, const AuthorInfo& author) {
     return out;
 }
 
-std::ostream& operator<<(std::ostream& out, const BookInfo& book) {
+struct BookSelectionInfo {
+    std::string title;
+    std::string author_name;
+    int publication_year;
+};
+
+std::ostream& operator<<(std::ostream& out, const BookSelectionInfo& book) {
     out << book.title << " by " << book.author_name << ", " << book.publication_year;
     return out;
 }
 
 }  // namespace detail
 
-// Вспомогательная функция вывода векторов без точек
 template <typename T>
 void PrintVectorWithoutDot(std::ostream& out, const std::vector<T>& vector) {
     int i = 1;
@@ -37,7 +42,6 @@ void PrintVectorWithoutDot(std::ostream& out, const std::vector<T>& vector) {
     }
 }
 
-// Алгоритм нормализации тегов книги
 std::vector<std::string> ParseAndNormalizeTags(const std::string& input_tags) {
     std::vector<std::string> raw_tags;
     std::stringstream ss(input_tags);
@@ -52,18 +56,14 @@ std::vector<std::string> ParseAndNormalizeTags(const std::string& input_tags) {
 
     for (auto& tag : raw_tags) {
         boost::algorithm::trim(tag);
-        if (tag.empty()) {
-            continue;
-        }
+        if (tag.empty()) continue;
 
         std::string normalized_tag;
         std::stringstream words_stream(tag);
         std::string word;
         bool first = true;
         while (words_stream >> word) {
-            if (!first) {
-                normalized_tag += " ";
-            }
+            if (!first) normalized_tag += " ";
             normalized_tag += word;
             first = false;
         }
@@ -75,9 +75,10 @@ std::vector<std::string> ParseAndNormalizeTags(const std::string& input_tags) {
     return result;
 }
 
-View::View(menu::Menu& menu, app::UseCases& use_cases, std::istream& input, std::ostream& output)
+View::View(menu::Menu& menu, app::UseCases& use_cases, app::UnitOfWorkFactory& uow_factory, std::istream& input, std::ostream& output)
     : menu_{menu}
     , use_cases_{use_cases}
+    , uow_factory_{uow_factory}
     , input_{input}
     , output_{output} {
     menu_.AddAction("AddAuthor"s, "name"s, "Adds author"s, std::bind(&View::AddAuthor, this, ph::_1));
@@ -96,8 +97,11 @@ bool View::AddAuthor(std::istream& cmd_input) const {
         std::string name;
         std::getline(cmd_input, name);
         boost::algorithm::trim(name);
-        use_cases_.AddAuthor(std::move(name));
-    } catch (const std::exception&) {
+        
+        auto uow = uow_factory_.MakeUnitOfWork();
+        use_cases_.AddAuthor(*uow, std::move(name));
+        uow->Commit();
+    } catch (...) {
         output_ << "Failed to add author"sv << std::endl;
     }
     return true;
@@ -109,18 +113,19 @@ bool View::EditAuthor(std::istream& cmd_input) const {
         std::getline(cmd_input, current_name);
         boost::algorithm::trim(current_name);
 
+        auto uow = uow_factory_.MakeUnitOfWork();
         std::string author_id_to_edit;
         bool use_name_scenario = !current_name.empty();
 
         if (use_name_scenario) {
-            auto author = use_cases_.FindAuthorByName(current_name);
+            auto author = use_cases_.FindAuthorByName(*uow, current_name);
             if (!author) {
                 output_ << "Failed to edit author" << std::endl;
                 return true;
             }
         } else {
             output_ << "Select author:" << std::endl;
-            auto authors = GetAuthors();
+            auto authors = GetAuthors(*uow);
             if (authors.empty()) return true;
 
             PrintVectorWithoutDot(output_, authors);
@@ -143,10 +148,12 @@ bool View::EditAuthor(std::istream& cmd_input) const {
         boost::algorithm::trim(new_name);
 
         bool success = use_name_scenario 
-            ? use_cases_.EditAuthorByName(current_name, new_name)
-            : use_cases_.EditAuthorById(author_id_to_edit, new_name);
+            ? use_cases_.EditAuthorByName(*uow, current_name, new_name)
+            : use_cases_.EditAuthorById(*uow, author_id_to_edit, new_name);
 
-        if (!success) {
+        if (success) {
+            uow->Commit();
+        } else {
             output_ << "Failed to edit author" << std::endl;
         }
     } catch (...) {
@@ -161,13 +168,17 @@ bool View::DeleteAuthor(std::istream& cmd_input) const {
         std::getline(cmd_input, name);
         boost::algorithm::trim(name);
 
+        auto uow = uow_factory_.MakeUnitOfWork();
+
         if (!name.empty()) {
-            if (!use_cases_.DeleteAuthorByName(name)) {
+            if (use_cases_.DeleteAuthorByName(*uow, name)) {
+                uow->Commit();
+            } else {
                 output_ << "Failed to delete author" << std::endl;
             }
         } else {
             output_ << "Select author:" << std::endl;
-            auto authors = GetAuthors();
+            auto authors = GetAuthors(*uow);
             if (authors.empty()) return true;
             
             PrintVectorWithoutDot(output_, authors);
@@ -182,7 +193,9 @@ bool View::DeleteAuthor(std::istream& cmd_input) const {
                 return true;
             }
 
-            if (!use_cases_.DeleteAuthorById(authors[author_idx].id)) {
+            if (use_cases_.DeleteAuthorById(*uow, authors[author_idx].id)) {
+                uow->Commit();
+            } else {
                 output_ << "Failed to delete author" << std::endl;
             }
         }
@@ -207,6 +220,8 @@ bool View::AddBook(std::istream& cmd_input) const {
             return true;
         }
 
+        auto uow = uow_factory_.MakeUnitOfWork();
+
         output_ << "Enter author name or empty line to select from list:" << std::endl;
         std::string author_name;
         if (!std::getline(input_, author_name)) return true;
@@ -215,13 +230,13 @@ bool View::AddBook(std::istream& cmd_input) const {
         std::optional<std::string> author_id;
 
         if (author_name.empty()) {
-            author_id = SelectAuthor();
+            author_id = SelectAuthor(*uow);
             if (!author_id) {
                 output_ << "Failed to add book" << std::endl;
                 return true;
             }
         } else {
-            auto author = use_cases_.FindAuthorByName(author_name);
+            auto author = use_cases_.FindAuthorByName(*uow, author_name);
             if (!author) {
                 output_ << "No author found. Do you want to add " << author_name << " (y/n)?" << std::endl;
                 std::string answer;
@@ -243,10 +258,11 @@ bool View::AddBook(std::istream& cmd_input) const {
         std::vector<std::string> tags = ParseAndNormalizeTags(raw_tags);
 
         if (author_id) {
-            use_cases_.AddBookWithExistingAuthor(title, *author_id, publication_year, tags);
+            use_cases_.AddBookWithExistingAuthor(*uow, title, *author_id, publication_year, tags);
         } else {
-            use_cases_.AddBookWithNewAuthor(title, author_name, publication_year, tags);
+            use_cases_.AddBookWithNewAuthor(*uow, title, author_name, publication_year, tags);
         }
+        uow->Commit();
     } catch (...) {
         output_ << "Failed to add book" << std::endl;
     }
@@ -259,27 +275,33 @@ bool View::ShowBook(std::istream& cmd_input) const {
         std::getline(cmd_input, title);
         boost::algorithm::trim(title);
 
-        auto found_books = use_cases_.FindDetailedBooks(title);
+        auto uow = uow_factory_.MakeUnitOfWork();
+
+        auto found_books = use_cases_.FindDetailedBooks(*uow, title);
         if (found_books.empty()) return true;
 
-        auto target_book = SelectBookFromList(found_books);
+        auto target_book = SelectBookFromList(*uow, found_books);
         if (!target_book) return true;
 
         output_ << "Title: " << target_book->title << std::endl;
         output_ << "Author: " << target_book->author_name << std::endl;
         output_ << "Publication year: " << target_book->publication_year << std::endl;
 
-        auto tags = use_cases_.GetBookTags(target_book->id);
+        auto tags = use_cases_.GetBookTags(*uow, target_book->id);
         if (!tags.empty()) {
             output_ << "Tags: ";
             for (size_t i = 0; i < tags.size(); ++i) {
                 output_ << tags[i];
-                if (i + 1 < tags.size()) output_ << ", ";
-            }
-            output_ << std::endl;
+
+        if (i + 1 < tags.size()) {
+            output_ << ", ";
         }
-    } catch (...) {}
-    return true;
+    }
+    output_ << std::endl;
+}
+uow->Commit();
+} catch (...) {}
+return true;
 }
 
 bool View::EditBook(std::istream& cmd_input) const {
@@ -288,45 +310,51 @@ bool View::EditBook(std::istream& cmd_input) const {
         std::getline(cmd_input, title);
         boost::algorithm::trim(title);
 
-        auto found_books = use_cases_.FindDetailedBooks(title);
+        auto uow = uow_factory_.MakeUnitOfWork();
+        auto found_books = use_cases_.FindDetailedBooks(*uow, title);
+
         if (!title.empty() && found_books.empty()) {
+            output_ << "Book not found" << std::endl;
+            return true;
+        }
+
+        auto target_book = SelectBookFromList(*uow, found_books);
+        if (!target_book) return true;
+
+        output_ << "Enter new title or empty line to use the current one (" 
+                << target_book->title << "):" << std::endl;
+        std::string new_title;
+        if (!std::getline(input_, new_title)) return true;
+        boost::algorithm::trim(new_title);
+        if (new_title.empty()) new_title = target_book->title;
+
+        output_ << "Enter publication year or empty line to use the current one (" 
+                << target_book->publication_year << "):" << std::endl;
+        std::string new_year_str;
+        if (!std::getline(input_, new_year_str)) return true;
+        boost::algorithm::trim(new_year_str);
+        int new_year = new_year_str.empty() ? target_book->publication_year : std::stoi(new_year_str);
+
+        auto current_tags = use_cases_.GetBookTags(*uow, target_book->id);
+        output_ << "Enter tags (current tags: ";
+        for (size_t i = 0; i < current_tags.size(); ++i) {
+            output_ << current_tags[i];
+            if (i + 1 < current_tags.size()) output_ << ", ";
+        }
+        output_ << "):" << std::endl;
+
+        std::string raw_tags;
+        if (!std::getline(input_, raw_tags)) return true;
+        std::vector<std::string> tags = ParseAndNormalizeTags(raw_tags);
+
+        if (use_cases_.UpdateBookFull(*uow, target_book->id, new_title, new_year, tags)) {
+            uow->Commit();
+        } else {
+            output_ << "Book not found" << std::endl;
+        }
+    } catch (...) {
         output_ << "Book not found" << std::endl;
-        return true;
     }
-
-    auto target_book = SelectBookFromList(found_books);
-    if (!target_book) return true;
-
-    output_ << "Enter new title or empty line to use the current one (" << target_book->title << "):" << std::endl;
-    std::string new_title;
-    if (!std::getline(input_, new_title)) return true;
-    boost::algorithm::trim(new_title);
-    if (new_title.empty()) new_title = target_book->title;
-
-    output_ << "Enter publication year or empty line to use the current one (" << target_book->publication_year << "):" << std::endl;
-    std::string new_year_str;
-    if (!std::getline(input_, new_year_str)) return true;
-    boost::algorithm::trim(new_year_str);
-    int new_year = new_year_str.empty() ? target_book->publication_year : std::stoi(new_year_str);
-
-    auto current_tags = use_cases_.GetBookTags(target_book->id);
-    output_ << "Enter tags (current tags: ";
-    for (size_t i = 0; i < current_tags.size(); ++i) {
-        output_ << current_tags[i];
-        if (i + 1 < current_tags.size()) output_ << ", ";
-    }
-    output_ << "):" << std::endl;
-
-    std::string raw_tags;
-    if (!std::getline(input_, raw_tags)) return true;
-    std::vector<std::string> tags = ParseAndNormalizeTags(raw_tags);
-
-    if (!use_cases_.UpdateBookFull(target_book->id, new_title, new_year, tags)) {
-        output_ << "Book not found" << std::endl;
-    }
-} catch (...) {
-    output_ << "Book not found" << std::endl;
-}
     return true;
 }
 
@@ -336,16 +364,20 @@ bool View::DeleteBook(std::istream& cmd_input) const {
         std::getline(cmd_input, title);
         boost::algorithm::trim(title);
 
-        auto found_books = use_cases_.FindDetailedBooks(title);
+        auto uow = uow_factory_.MakeUnitOfWork();
+        auto found_books = use_cases_.FindDetailedBooks(*uow, title);
+
         if (found_books.empty()) {
             output_ << "Book not found" << std::endl;
             return true;
         }
 
-        auto target_book = SelectBookFromList(found_books);
+        auto target_book = SelectBookFromList(*uow, found_books);
         if (!target_book) return true;
 
-        if (!use_cases_.DeleteBookById(target_book->id)) {
+        if (use_cases_.DeleteBookById(*uow, target_book->id)) {
+            uow->Commit();
+        } else {
             output_ << "Book not found" << std::endl;
         }
     } catch (...) {
@@ -355,27 +387,34 @@ bool View::DeleteBook(std::istream& cmd_input) const {
 }
 
 bool View::ShowAuthors() const {
-    PrintVectorWithoutDot(output_, GetAuthors());
+    auto uow = uow_factory_.MakeUnitOfWork();
+    PrintVectorWithoutDot(output_, GetAuthors(*uow));
+    uow->Commit();
     return true;
 }
 
 bool View::ShowBooks() const {
-    PrintVectorWithoutDot(output_, GetBooks());
+    auto uow = uow_factory_.MakeUnitOfWork();
+    PrintVectorWithoutDot(output_, GetBooks(*uow));
+    uow->Commit();
     return true;
 }
 
-std::optional<domain::BookDetailed> View::SelectBookFromList(const std::vector<domain::BookDetailed>& books) const {
+std::optional<domain::BookDetailed> View::SelectBookFromList(
+    app::UnitOfWork& uow, 
+    const std::vector<domain::BookDetailed>& books
+) const {
     if (books.empty()) return std::nullopt;
     if (books.size() == 1) return books[0];
 
-    // Изменено: используем правильный тип detail::BookInfo
     std::vector<detail::BookInfo> sel_list;
     for (const auto& b : books) {
         sel_list.push_back({b.title, b.author_name, b.publication_year});
     }
-    PrintVectorWithoutDot(output_, sel_list);
 
+    PrintVectorWithoutDot(output_, sel_list);
     output_ << "Enter the book # or empty line to cancel:" << std::endl;
+
     std::string str;
     if (!std::getline(input_, str) || str.empty()) return std::nullopt;
 
@@ -386,15 +425,15 @@ std::optional<domain::BookDetailed> View::SelectBookFromList(const std::vector<d
     return books[idx];
 }
 
-std::optional<std::string> View::SelectAuthor() const {
+std::optional<std::string> View::SelectAuthor(app::UnitOfWork& uow) const {
     output_ << "Select author:" << std::endl;
-    auto authors = GetAuthors();
+    auto authors = GetAuthors(uow);
     PrintVectorWithoutDot(output_, authors);
-    
     output_ << "Enter author # or empty line to cancel" << std::endl;
+
     std::string str;
     if (!std::getline(input_, str) || str.empty()) return std::nullopt;
-    
+
     int author_idx = std::stoi(str) - 1;
     if (author_idx < 0 || author_idx >= static_cast<int>(authors.size())) {
         throw std::runtime_error("Invalid author num");
@@ -402,17 +441,17 @@ std::optional<std::string> View::SelectAuthor() const {
     return authors[author_idx].id;
 }
 
-std::vector<detail::AuthorInfo> View::GetAuthors() const {
+std::vector<detail::AuthorInfo> View::GetAuthors(app::UnitOfWork& uow) const {
     std::vector<detail::AuthorInfo> dst_authors;
-    for (const auto& author : use_cases_.GetAuthors()) {
+    for (const auto& author : use_cases_.GetAuthors(uow)) {
         dst_authors.push_back({author.GetId().ToString(), author.GetName()});
     }
     return dst_authors;
 }
 
-std::vector<detail::BookInfo> View::GetBooks() const {
+std::vector<detail::BookInfo> View::GetBooks(app::UnitOfWork& uow) const {
     std::vector<detail::BookInfo> dst_books;
-    for (const auto& book : use_cases_.GetBooksWithAuthors()) {
+    for (const auto& book : use_cases_.GetBooksWithAuthors(uow)) {
         dst_books.push_back({book.title, book.author_name, book.publication_year});
     }
     return dst_books;

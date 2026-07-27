@@ -23,7 +23,7 @@ void Application::Run() {
     menu.AddAction("Exit"s, {}, "Exit program"s, [&menu](std::istream&) {
         return false;
     });
-    ui::View view{menu, use_cases_, std::cin, std::cout};
+    ui::View view{menu, use_cases_, uow_factory_, std::cin, std::cout};
     menu.Run();
 }
 

@@ -6,121 +6,79 @@
 namespace app {
 using namespace domain;
 
-void UseCasesImpl::AddAuthor(const std::string& name) {
-    if (name.empty()) {
-        throw std::runtime_error("Failed to add author");
-    }
-    auto uow = uow_factory_.MakeUnitOfWork();
-    uow->GetAuthors().Save({AuthorId::New(), name});
-    uow->Commit();
+void UseCasesImpl::AddAuthor(UnitOfWork& uow, const std::string& name) {
+    if (name.empty()) throw std::runtime_error("Failed to add author");
+    uow.GetAuthors().Save({AuthorId::New(), name});
 }
 
-std::vector<Author> UseCasesImpl::GetAuthors() {
-    auto uow = uow_factory_.MakeUnitOfWork();
-    auto result = uow->GetAuthors().GetSortedAuthors();
-    uow->Commit();
-    return result;
+std::vector<Author> UseCasesImpl::GetAuthors(UnitOfWork& uow) {
+    return uow.GetAuthors().GetSortedAuthors();
 }
 
-std::optional<Author> UseCasesImpl::FindAuthorByName(const std::string& name) {
-    auto uow = uow_factory_.MakeUnitOfWork();
-    auto result = uow->GetAuthors().FindByName(name);
-    uow->Commit();
-    return result;
+std::optional<Author> UseCasesImpl::FindAuthorByName(UnitOfWork& uow, const std::string& name) {
+    return uow.GetAuthors().FindByName(name);
 }
 
-bool UseCasesImpl::DeleteAuthorById(const std::string& author_id) {
-    auto uow = uow_factory_.MakeUnitOfWork();
-    bool res = uow->GetAuthors().Delete(AuthorId::FromString(author_id));
-    uow->Commit();
-    return res;
+bool UseCasesImpl::DeleteAuthorById(UnitOfWork& uow, const std::string& author_id) {
+    return uow.GetAuthors().Delete(AuthorId::FromString(author_id));
 }
 
-bool UseCasesImpl::DeleteAuthorByName(const std::string& name) {
-    auto uow = uow_factory_.MakeUnitOfWork();
-    auto author = uow->GetAuthors().FindByName(name);
+bool UseCasesImpl::DeleteAuthorByName(UnitOfWork& uow, const std::string& name) {
+    auto author = uow.GetAuthors().FindByName(name);
     if (!author) return false;
-    bool res = uow->GetAuthors().Delete(author->GetId());
-    uow->Commit();
-    return res;
+    return uow.GetAuthors().Delete(author->GetId());
 }
 
-bool UseCasesImpl::EditAuthorById(const std::string& author_id, const std::string& new_name) {
-    auto uow = uow_factory_.MakeUnitOfWork();
-    bool res = uow->GetAuthors().Edit(AuthorId::FromString(author_id), new_name);
-    uow->Commit();
-    return res;
+bool UseCasesImpl::EditAuthorById(UnitOfWork& uow, const std::string& author_id, const std::string& new_name) {
+    return uow.GetAuthors().Edit(AuthorId::FromString(author_id), new_name);
 }
 
-bool UseCasesImpl::EditAuthorByName(const std::string& current_name, const std::string& new_name) {
-    auto uow = uow_factory_.MakeUnitOfWork();
-    auto author = uow->GetAuthors().FindByName(current_name);
+bool UseCasesImpl::EditAuthorByName(UnitOfWork& uow, const std::string& current_name, const std::string& new_name) {
+    auto author = uow.GetAuthors().FindByName(current_name);
     if (!author) return false;
-    bool res = uow->GetAuthors().Edit(author->GetId(), new_name);
-    uow->Commit();
-    return res;
+    return uow.GetAuthors().Edit(author->GetId(), new_name);
 }
 
-void UseCasesImpl::AddBookWithExistingAuthor(const std::string& title, const std::string& author_id, int publication_year, const std::vector<std::string>& tags) {
-    auto uow = uow_factory_.MakeUnitOfWork();
+void UseCasesImpl::AddBookWithExistingAuthor(UnitOfWork& uow, const std::string& title, const std::string& author_id, int publication_year, const std::vector<std::string>& tags) {
     auto book_id = BookId::New();
-    uow->GetBooks().Save({book_id, AuthorId::FromString(author_id), title, publication_year});
+    uow.GetBooks().Save({book_id, AuthorId::FromString(author_id), title, publication_year});
     for (const auto& tag : tags) {
-        uow->GetBooks().AddTag(book_id.ToString(), tag);
+        uow.GetBooks().AddTag(book_id.ToString(), tag);
     }
-    uow->Commit();
 }
 
-void UseCasesImpl::AddBookWithNewAuthor(const std::string& title, const std::string& author_name, int publication_year, const std::vector<std::string>& tags) {
-    auto uow = uow_factory_.MakeUnitOfWork();
+void UseCasesImpl::AddBookWithNewAuthor(UnitOfWork& uow, const std::string& title, const std::string& author_name, int publication_year, const std::vector<std::string>& tags) {
     auto author_id = AuthorId::New();
-    uow->GetAuthors().Save({author_id, author_name});
+    uow.GetAuthors().Save({author_id, author_name});
     auto book_id = BookId::New();
-    uow->GetBooks().Save({book_id, author_id, title, publication_year});
+    uow.GetBooks().Save({book_id, author_id, title, publication_year});
     for (const auto& tag : tags) {
-        uow->GetBooks().AddTag(book_id.ToString(), tag);
+        uow.GetBooks().AddTag(book_id.ToString(), tag);
     }
-    uow->Commit();
 }
 
-std::vector<BookWithAuthor> UseCasesImpl::GetBooksWithAuthors() {
-    auto uow = uow_factory_.MakeUnitOfWork();
-    auto result = uow->GetBooks().GetSortedBooksWithAuthors();
-    uow->Commit();
-    return result;
+std::vector<BookWithAuthor> UseCasesImpl::GetBooksWithAuthors(UnitOfWork& uow) {
+    return uow.GetBooks().GetSortedBooksWithAuthors();
 }
 
-std::vector<BookDetailed> UseCasesImpl::FindDetailedBooks(const std::string& title) {
-    auto uow = uow_factory_.MakeUnitOfWork();
-    auto result = uow->GetBooks().FindDetailedBooks(title);
-    uow->Commit();
-    return result;
+std::vector<BookDetailed> UseCasesImpl::FindDetailedBooks(UnitOfWork& uow, const std::string& title) {
+    return uow.GetBooks().FindDetailedBooks(title);
 }
 
-std::vector<std::string> UseCasesImpl::GetBookTags(const std::string& book_id) {
-    auto uow = uow_factory_.MakeUnitOfWork();
-    auto result = uow->GetBooks().GetBookTags(book_id);
-    uow->Commit();
-    return result;
+std::vector<std::string> UseCasesImpl::GetBookTags(UnitOfWork& uow, const std::string& book_id) {
+    return uow.GetBooks().GetBookTags(book_id);
 }
 
-bool UseCasesImpl::DeleteBookById(const std::string& book_id) {
-    auto uow = uow_factory_.MakeUnitOfWork();
-    bool res = uow->GetBooks().DeleteBook(book_id);
-    uow->Commit();
-    return res;
+bool UseCasesImpl::DeleteBookById(UnitOfWork& uow, const std::string& book_id) {
+    return uow.GetBooks().DeleteBook(book_id);
 }
 
-bool UseCasesImpl::UpdateBookFull(const std::string& book_id, const std::string& title, int year, const std::vector<std::string>& tags) {
-    auto uow = uow_factory_.MakeUnitOfWork();
-    if (!uow->GetBooks().EditBook(book_id, title, year)) {
-        return false;
-    }
-    uow->GetBooks().ClearBookTags(book_id);
+bool UseCasesImpl::UpdateBookFull(UnitOfWork& uow, const std::string& book_id, const std::string& title, int year, const std::vector<std::string>& tags) {
+    if (!uow.GetBooks().EditBook(book_id, title, year)) return false;
+    uow.GetBooks().ClearBookTags(book_id);
     for (const auto& tag : tags) {
-        uow->GetBooks().AddTag(book_id, tag);
+        uow.GetBooks().AddTag(book_id, tag);
     }
-    uow->Commit();
     return true;
 }
 

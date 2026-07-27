@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include "../domain/book.h"
+#include "../app/unit_of_work.h" // Подключаем интерфейс UOW
 
 namespace menu {
 class Menu;
@@ -37,7 +38,8 @@ struct BookInfo {
 
 class View {
 public:
-    View(menu::Menu& menu, app::UseCases& use_cases, std::istream& input, std::ostream& output);
+    // Конструктор теперь дополнительно принимает фабрику UnitOfWorkFactory
+    View(menu::Menu& menu, app::UseCases& use_cases, app::UnitOfWorkFactory& uow_factory, std::istream& input, std::ostream& output);
 
 private:
     bool AddAuthor(std::istream& cmd_input) const;
@@ -52,16 +54,15 @@ private:
     bool ShowAuthors() const;
     bool ShowBooks() const;
 
-    std::optional<detail::AddBookParams> GetBookParams(std::istream& cmd_input) const;
-    std::optional<std::string> SelectAuthor() const;
-    std::optional<domain::BookDetailed> SelectBookFromList(const std::vector<domain::BookDetailed>& books) const;
+    std::optional<std::string> SelectAuthor(app::UnitOfWork& uow) const;
+    std::optional<domain::BookDetailed> SelectBookFromList(app::UnitOfWork& uow, const std::vector<domain::BookDetailed>& books) const;
     
-    std::vector<detail::AuthorInfo> GetAuthors() const;
-    std::vector<detail::BookInfo> GetBooks() const;
+    std::vector<detail::AuthorInfo> GetAuthors(app::UnitOfWork& uow) const;
+    std::vector<detail::BookInfo> GetBooks(app::UnitOfWork& uow) const;
 
-    // ПРИВАТНЫЕ ПОЛЯ, КОТОРЫХ НЕ ХВАТАЛО:
     menu::Menu& menu_;
     app::UseCases& use_cases_;
+    app::UnitOfWorkFactory& uow_factory_; // Сохраняем фабрику
     std::istream& input_;
     std::ostream& output_;
 };
