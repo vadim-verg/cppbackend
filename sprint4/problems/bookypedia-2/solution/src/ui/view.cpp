@@ -335,21 +335,21 @@ bool View::DeleteBook(std::istream& cmd_input) const {
         std::string title;
         std::getline(cmd_input, title);
         boost::algorithm::trim(title);
-        
+
         auto found_books = use_cases_.FindDetailedBooks(title);
         if (found_books.empty()) {
-            output_ << "Failed to delete book" << std::endl;
+            output_ << "Book not found" << std::endl;
             return true;
         }
-        
+
         auto target_book = SelectBookFromList(found_books);
         if (!target_book) return true;
-        
+
         if (!use_cases_.DeleteBookById(target_book->id)) {
-            output_ << "Failed to delete book" << std::endl;
+            output_ << "Book not found" << std::endl;
         }
     } catch (...) {
-        output_ << "Failed to delete book" << std::endl;
+        output_ << "Book not found" << std::endl;
     }
     return true;
 }

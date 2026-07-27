@@ -39,7 +39,17 @@ std::optional<domain::Author> AuthorRepositoryImpl::FindByName(const std::string
 }
 
 bool AuthorRepositoryImpl::Delete(const domain::AuthorId& author_id) {
-    auto result = work_.exec_params("DELETE FROM authors WHERE id = $1;"_zv, author_id.ToString());
+    std::string id_str = author_id.ToString();
+
+    work_.exec_params(R"(
+        DELETE FROM book_tags 
+        WHERE book_id IN (SELECT id FROM books WHERE author_id = $1);
+    )"_zv, id_str);
+
+    work_.exec_params("DELETE FROM books WHERE author_id = $1;"_zv, id_str);
+
+    auto result = work_.exec_params("DELETE FROM authors WHERE id = $1;"_zv, id_str);
+    
     return result.affected_rows() > 0;
 }
 
