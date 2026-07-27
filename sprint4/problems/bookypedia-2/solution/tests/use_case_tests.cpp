@@ -7,7 +7,6 @@
 
 namespace {
 
-// 1. Мок для репозитория авторов
 struct MockAuthorRepository : domain::AuthorRepository {
     void Save(const domain::Author& author) override {
         saved_authors.push_back(author);
@@ -27,7 +26,6 @@ struct MockAuthorRepository : domain::AuthorRepository {
     std::vector<domain::Author> saved_authors;
 };
 
-// 2. Мок для репозитория книг
 struct MockBookRepository : domain::BookRepository {
     void Save(const domain::Book& book) override {
         saved_books.push_back(book);
@@ -43,7 +41,6 @@ struct MockBookRepository : domain::BookRepository {
     std::vector<domain::Book> saved_books;
 };
 
-// 3. Мок для самого Unit of Work
 class MockUnitOfWork : public app::UnitOfWork {
 public:
     MockUnitOfWork(MockAuthorRepository& authors, MockBookRepository& books)
@@ -58,7 +55,6 @@ private:
     MockBookRepository& books_;
 };
 
-// 4. Мок для фабрики Unit of Work
 class MockUnitOfWorkFactory : public app::UnitOfWorkFactory {
 public:
     MockUnitOfWorkFactory(MockAuthorRepository& authors, MockBookRepository& books)
@@ -73,12 +69,11 @@ private:
     MockBookRepository& books_;
 };
 
-// Фикстура для тестов Catch2
 struct Fixture {
     MockAuthorRepository authors;
     MockBookRepository books;
     MockUnitOfWorkFactory uow_factory{authors, books};
-    app::UseCasesImpl use_cases{uow_factory}; // Передаем фабрику, как требует новая архитектура
+    app::UseCasesImpl use_cases; // Изменено: создание без аргументов
 };
 
 }  // namespace
@@ -87,7 +82,12 @@ TEST_CASE_METHOD(Fixture, "UseCases") {
     SECTION("AddAuthor") {
         CHECK(authors.saved_authors.empty());
 
-        use_cases.AddAuthor("Joanne Rowling");
+        // Создаем контекст UnitOfWork для теста
+        auto uow = uow_factory.MakeUnitOfWork();
+
+        // Передаем uow первым аргументом, как требует новая архитектура
+        use_cases.AddAuthor(*uow, "Joanne Rowling");
+        uow->Commit();
 
         REQUIRE(authors.saved_authors.size() == 1);
         CHECK(authors.saved_authors.at(0).GetName() == "Joanne Rowling");
