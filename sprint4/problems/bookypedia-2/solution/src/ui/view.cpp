@@ -14,25 +14,17 @@ using namespace std::literals;
 namespace ph = std::placeholders;
 
 namespace ui {
-namespace detail {
 
-std::ostream& operator<<(std::ostream& out, const AuthorInfo& author) {
+// Вынесли операторы напрямую в namespace ui, чтобы их видел компилятор
+std::ostream& operator<<(std::ostream& out, const detail::AuthorInfo& author) {
     out << author.name;
     return out;
 }
 
-struct BookSelectionInfo {
-    std::string title;
-    std::string author_name;
-    int publication_year;
-};
-
-std::ostream& operator<<(std::ostream& out, const BookSelectionInfo& book) {
+std::ostream& operator<<(std::ostream& out, const detail::BookInfo& book) {
     out << book.title << " by " << book.author_name << ", " << book.publication_year;
     return out;
 }
-
-}  // namespace detail
 
 template <typename T>
 void PrintVectorWithoutDot(std::ostream& out, const std::vector<T>& vector) {
