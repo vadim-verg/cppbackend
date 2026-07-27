@@ -371,7 +371,6 @@ bool View::DeleteBook(std::istream& cmd_input) const {
         auto uow = uow_factory_.MakeUnitOfWork();
         std::vector<domain::BookDetailed> found_books;
         
-        // ИСПРАВЛЕНИЕ: Если название пустое — выгружаем ВСЕ книги из базы, как и в EditBook!
         if (title.empty()) {
             found_books = use_cases_.FindDetailedBooks(*uow, ""s);
         } else {
@@ -385,8 +384,9 @@ bool View::DeleteBook(std::istream& cmd_input) const {
         }
 
         auto target_book = SelectBookFromList(*uow, found_books);
-        if (!target_book) return true; // Мягкая отмена, тихо выходим
+        if (!target_book) return true; // Отмена по Enter
 
+        // ВАЖНО: Используем target_book->id
         if (use_cases_.DeleteBookById(*uow, target_book->id)) {
             uow->Commit();
         } else {

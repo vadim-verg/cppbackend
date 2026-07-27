@@ -136,25 +136,24 @@ std::vector<std::string> BookRepositoryImpl::GetBookTags(const std::string& book
 }
 
 void BookRepositoryImpl::AddTag(const std::string& book_id, const std::string& tag) {
-    work_.exec_params("INSERT INTO book_tags (book_id, tag) VALUES ($1, $2) ON CONFLICT DO NOTHING;"_zv, book_id, tag);
+    work_.exec_params("INSERT INTO book_tags (book_id, tag) VALUES ($1::uuid, $2) ON CONFLICT DO NOTHING;"_zv, book_id, tag);
 }
 
 bool BookRepositoryImpl::DeleteBook(const std::string& book_id) {
-    auto result = work_.exec_params("DELETE FROM books WHERE id = $1;"_zv, book_id);
+    auto result = work_.exec_params("DELETE FROM books WHERE id = $1::uuid;"_zv, book_id);
     return result.affected_rows() > 0;
 }
 
 bool BookRepositoryImpl::EditBook(const std::string& book_id, const std::string& new_title, int new_year) {
-    // Обновляем название и год публикации книги по её уникальному ID
     auto result = work_.exec_params(
-        "UPDATE books SET title = $1, publication_year = $2 WHERE id = $3;"_zv,
+        "UPDATE books SET title = $1, publication_year = $2 WHERE id = $3::uuid;"_zv,
         new_title, new_year, book_id
     );
     return result.affected_rows() > 0;
 }
 
 void BookRepositoryImpl::ClearBookTags(const std::string& book_id) {
-    work_.exec_params("DELETE FROM book_tags WHERE book_id = $1;"_zv, book_id);
+    work_.exec_params("DELETE FROM book_tags WHERE book_id = $1::uuid;"_zv, book_id);
 }
 
 // --- Database ---
