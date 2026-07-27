@@ -415,10 +415,9 @@ bool View::ShowBooks() const {
 std::optional<domain::BookDetailed> View::SelectBookFromList(app::UnitOfWork& uow, const std::vector<domain::BookDetailed>& books) const {
     if (books.empty()) return std::nullopt;
     
-    // Если найдена ровно одна книга — коллизии нет, сразу возвращаем её
+    // ИСПРАВЛЕНИЕ 1: Если книга ровно одна, возвращаем именно её (первый элемент), а не весь вектор!
     if (books.size() == 1) return books[0];
 
-    // Если книг несколько — выводим нумерованный список строго в том порядке, в котором их вернула БД
     std::vector<detail::BookInfo> sel_list;
     for (const auto& b : books) {
         sel_list.push_back({b.title, b.author_name, b.publication_year});
@@ -429,7 +428,10 @@ std::optional<domain::BookDetailed> View::SelectBookFromList(app::UnitOfWork& uo
     output_ << std::flush;
 
     std::string str;
-    if (!std::getline(input_, str) || str.empty()) return std::nullopt;
+    if (!std::getline(input_, str) || str.empty()) {
+        // ИСПРАВЛЕНИЕ 2: При пустой строке возвращаем nullopt без генерации исключений (мягкая отмена)
+        return std::nullopt; 
+    }
 
     int idx = 0;
     try {
@@ -439,7 +441,7 @@ std::optional<domain::BookDetailed> View::SelectBookFromList(app::UnitOfWork& uo
     }
 
     if (idx < 0 || idx >= static_cast<int>(books.size())) {
-        return std::nullopt; // Тихо выходим по ТЗ при неверном вводе
+        return std::nullopt;
     }
     return books[idx];
 }
