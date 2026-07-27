@@ -1,4 +1,5 @@
 #include "postgres.h"
+#include <pqxx/pqxx> // Подключаем полный пакет libpqxx вместо отдельных модулей
 #include <pqxx/zview.hxx>
 
 namespace postgres {
