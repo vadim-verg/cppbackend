@@ -21,14 +21,7 @@ std::ostream& operator<<(std::ostream& out, const AuthorInfo& author) {
     return out;
 }
 
-// Формат для списков книг: НазваниеКниги by ИмяАвтора, ГодПубликации
-struct BookSelectionInfo {
-    std::string title;
-    std::string author_name;
-    int publication_year;
-};
-
-std::ostream& operator<<(std::ostream& out, const BookSelectionInfo& book) {
+std::ostream& operator<<(std::ostream& out, const BookInfo& book) {
     out << book.title << " by " << book.author_name << ", " << book.publication_year;
     return out;
 }
@@ -416,8 +409,8 @@ std::vector<detail::AuthorInfo> View::GetAuthors() const {
     return dst_authors;
 }
 
-std::vector<detail::BookSelectionInfo> View::GetBooks() const {
-    std::vector<detail::BookSelectionInfo> dst_books;
+std::vector<detail::BookInfo> View::GetBooks() const {
+    std::vector<detail::BookInfo> dst_books;
     for (const auto& book : use_cases_.GetBooksWithAuthors()) {
         dst_books.push_back({book.title, book.author_name, book.publication_year});
     }
