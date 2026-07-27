@@ -305,19 +305,22 @@ bool View::EditBook(std::istream& cmd_input) const {
 
         auto uow = uow_factory_.MakeUnitOfWork();
         std::vector<domain::BookDetailed> found_books;
-
+        
+        // Если название пустое — выгружаем ВСЕ книги из базы для интерактивного меню
         if (title.empty()) {
             found_books = use_cases_.FindDetailedBooks(*uow, ""s);
         } else {
             found_books = use_cases_.FindDetailedBooks(*uow, title);
-            if (found_books.empty()) {
-                output_ << "Book not found" << std::endl;
-                return true;
-            }
+        }
+
+        if (found_books.empty()) {
+            output_ << "Book not found" << std::endl;
+            output_ << std::flush;
+            return true;
         }
 
         auto target_book = SelectBookFromList(*uow, found_books);
-        if (!target_book) return true;
+        if (!target_book) return true; // Мягкая отмена по Enter, просто тихо выходим
 
         output_ << "Enter new title or empty line to use the current one (" << target_book->title << "):" << std::endl;
         output_ << std::flush;
@@ -350,9 +353,11 @@ bool View::EditBook(std::istream& cmd_input) const {
             uow->Commit();
         } else {
             output_ << "Book not found" << std::endl;
+            output_ << std::flush;
         }
     } catch (...) {
         output_ << "Book not found" << std::endl;
+        output_ << std::flush;
     }
     return true;
 }
@@ -364,29 +369,33 @@ bool View::DeleteBook(std::istream& cmd_input) const {
         boost::algorithm::trim(title);
 
         auto uow = uow_factory_.MakeUnitOfWork();
+        std::vector<domain::BookDetailed> found_books;
         
-        // Получаем книги по названию
-        auto found_books = use_cases_.FindDetailedBooks(*uow, title);
+        // ИСПРАВЛЕНИЕ: Если название пустое — выгружаем ВСЕ книги из базы, как и в EditBook!
+        if (title.empty()) {
+            found_books = use_cases_.FindDetailedBooks(*uow, ""s);
+        } else {
+            found_books = use_cases_.FindDetailedBooks(*uow, title);
+        }
+
         if (found_books.empty()) {
             output_ << "Book not found" << std::endl;
+            output_ << std::flush;
             return true;
         }
 
-        // Интерактивный или автоматический выбор книги из списка
         auto target_book = SelectBookFromList(*uow, found_books);
-        if (!target_book) {
-            // Если пользователь нажал Enter для отмены — просто тихо выходим по ТЗ, 
-            // ничего не выводя в консоль
-            return true; 
-        }
+        if (!target_book) return true; // Мягкая отмена, тихо выходим
 
         if (use_cases_.DeleteBookById(*uow, target_book->id)) {
             uow->Commit();
         } else {
             output_ << "Book not found" << std::endl;
+            output_ << std::flush;
         }
     } catch (...) {
         output_ << "Book not found" << std::endl;
+        output_ << std::flush;
     }
     return true;
 }
@@ -408,26 +417,24 @@ bool View::ShowBooks() const {
 std::optional<domain::BookDetailed> View::SelectBookFromList(app::UnitOfWork& uow, const std::vector<domain::BookDetailed>& books) const {
     if (books.empty()) return std::nullopt;
     
+    // Если найдена ровно одна книга — возвращаем её сразу, без показа меню выбора
     if (books.size() == 1) {
         return books[0];
     }
 
-    // Если книг несколько (коллизия названий) или пользователь вызвал команду без параметров,
-    // тогда и только тогда честно печатаем нумерованный список для интерактивного выбора.
+    // Если книг несколько (коллизия названий) — выводим список
     std::vector<detail::BookInfo> sel_list;
     for (const auto& b : books) {
         sel_list.push_back({b.title, b.author_name, b.publication_year});
     }
     PrintVectorWithoutDot(output_, sel_list);
-    output_ << std::flush; // Выталкиваем список роботу
+    output_ << std::flush;
 
     output_ << "Enter the book # or empty line to cancel:" << std::endl;
-    output_ << std::flush; // Выталкиваем приглашение ввода роботу
+    output_ << std::flush;
 
     std::string str;
-    if (!std::getline(input_, str) || str.empty()) {
-        return std::nullopt; // Мягкая отмена по пустому Enter
-    }
+    if (!std::getline(input_, str) || str.empty()) return std::nullopt;
 
     int idx = 0;
     try {
