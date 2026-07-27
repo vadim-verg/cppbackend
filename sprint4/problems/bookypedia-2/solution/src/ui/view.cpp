@@ -414,8 +414,11 @@ bool View::ShowBooks() const {
 
 std::optional<domain::BookDetailed> View::SelectBookFromList(app::UnitOfWork& uow, const std::vector<domain::BookDetailed>& books) const {
     if (books.empty()) return std::nullopt;
-    if (books.size() == 1) return books[0]; // Важное исправление: возвращаем первый элемент, а не весь вектор
+    
+    // Если найдена ровно одна книга — коллизии нет, сразу возвращаем её
+    if (books.size() == 1) return books[0];
 
+    // Если книг несколько — выводим нумерованный список строго в том порядке, в котором их вернула БД
     std::vector<detail::BookInfo> sel_list;
     for (const auto& b : books) {
         sel_list.push_back({b.title, b.author_name, b.publication_year});
@@ -423,14 +426,20 @@ std::optional<domain::BookDetailed> View::SelectBookFromList(app::UnitOfWork& uo
     PrintVectorWithoutDot(output_, sel_list);
 
     output_ << "Enter the book # or empty line to cancel:" << std::endl;
-    output_ << std::flush; // ЯВНО ВЫТАЛКИВАЕМ СТРОКУ ДЛЯ ТЕСТЕРА PYTHON
+    output_ << std::flush;
 
     std::string str;
     if (!std::getline(input_, str) || str.empty()) return std::nullopt;
 
-    int idx = std::stoi(str) - 1;
+    int idx = 0;
+    try {
+        idx = std::stoi(str) - 1;
+    } catch (...) {
+        return std::nullopt;
+    }
+
     if (idx < 0 || idx >= static_cast<int>(books.size())) {
-        throw std::runtime_error("Invalid book selection");
+        return std::nullopt; // Тихо выходим по ТЗ при неверном вводе
     }
     return books[idx];
 }

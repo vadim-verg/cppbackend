@@ -92,7 +92,12 @@ std::vector<domain::BookWithAuthor> BookRepositoryImpl::GetSortedBooksWithAuthor
 
 std::vector<domain::BookDetailed> BookRepositoryImpl::FindDetailedBooks(const std::string& title) {
     pqxx::result rows;
-    if (title.empty()) {
+    
+    // Очищаем входную строку от возможных пробелов по краям перед запросом
+    std::string clean_title = title;
+    boost::algorithm::trim(clean_title);
+
+    if (clean_title.empty()) {
         rows = work_.exec(R"(
             SELECT b.id, b.title, a.name AS author_name, b.publication_year 
             FROM books b INNER JOIN authors a ON b.author_id = a.id
@@ -104,7 +109,7 @@ std::vector<domain::BookDetailed> BookRepositoryImpl::FindDetailedBooks(const st
             FROM books b INNER JOIN authors a ON b.author_id = a.id
             WHERE b.title = $1
             ORDER BY b.title ASC, a.name ASC, b.publication_year ASC;
-        )"_zv, title);
+        )"_zv, clean_title);
     }
 
     std::vector<domain::BookDetailed> result;
@@ -120,6 +125,7 @@ std::vector<domain::BookDetailed> BookRepositoryImpl::FindDetailedBooks(const st
 }
 
 std::vector<std::string> BookRepositoryImpl::GetBookTags(const std::string& book_id) {
+
     auto rows = work_.exec_params("SELECT tag FROM book_tags WHERE book_id = $1 ORDER BY tag ASC;"_zv, book_id);
     std::vector<std::string> tags;
     for (const auto& row : rows) {
