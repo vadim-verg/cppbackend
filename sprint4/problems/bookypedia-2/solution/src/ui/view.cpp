@@ -463,7 +463,7 @@ std::vector<detail::AuthorInfo> View::GetAuthors(app::UnitOfWork& uow) const {
 std::vector<detail::BookInfo> View::GetBooks(app::UnitOfWork& uow) const {
     std::vector<detail::BookInfo> dst_books;
     for (const auto& book : use_cases_.GetBooksWithAuthors(uow)) {
-        dst_books.push_back({book.title, b.author_name, book.publication_year});
+        dst_books.push_back({book.title, book.author_name, book.publication_year});
     }
     return dst_books;
 }
