@@ -27,7 +27,7 @@ add_library(libbookypedia STATIC
 	src/postgres/postgres.cpp
 	src/postgres/postgres.h
 	src/app/unit_of_work.h
-	src/postgress/postgres_unit_of_work.h
+	src/postgres/postgres_unit_of_work.h
 )
 target_link_libraries(libbookypedia PUBLIC CONAN_PKG::boost Threads::Threads CONAN_PKG::libpq CONAN_PKG::libpqxx)
 
