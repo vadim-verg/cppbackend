@@ -141,6 +141,7 @@ void BookRepositoryImpl::AddTag(const std::string& book_id, const std::string& t
 }
 
 bool BookRepositoryImpl::DeleteBook(const std::string& book_id) {
+    work_.exec_params("DELETE FROM book_tags WHERE book_id = $1::uuid;"_zv, book_id);
     auto result = work_.exec_params("DELETE FROM books WHERE id = $1::uuid;"_zv, book_id);
     return result.affected_rows() > 0;
 }
