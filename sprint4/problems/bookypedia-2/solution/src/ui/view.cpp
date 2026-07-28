@@ -319,7 +319,12 @@ bool View::EditBook(std::istream& cmd_input) const {
         }
 
         auto target_book = SelectBookFromList(*uow, found_books);
-        if (!target_book) return true; // Чистый тихий выход при отмене выбора книги
+
+        if (!target_book) {
+            output_ << "Book not found" << std::endl;
+            output_ << std::flush;
+            return true;
+        }
 
         output_ << "Enter new title or empty line to use the current one (" << target_book->title << "):" << std::endl;
         output_ << std::flush;
