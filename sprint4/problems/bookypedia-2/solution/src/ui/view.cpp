@@ -312,6 +312,7 @@ bool View::EditBook(std::istream& cmd_input) const {
             found_books = use_cases_.FindDetailedBooks(*uow, title);
         }
 
+        // Если книга не найдена — выводим "Book not found"
         if (found_books.empty()) {
             output_ << "Book not found" << std::endl;
             output_ << std::flush;
@@ -319,12 +320,7 @@ bool View::EditBook(std::istream& cmd_input) const {
         }
 
         auto target_book = SelectBookFromList(*uow, found_books);
-
-        if (!target_book) {
-            output_ << "Book not found" << std::endl;
-            output_ << std::flush;
-            return true; 
-        }
+        if (!target_book) return true; // ТИХИЙ ВЫХОД ПРИ ОТМЕНЕ (Ничего не выводим по ТЗ)
 
         output_ << "Enter new title or empty line to use the current one (" << target_book->title << "):" << std::endl;
         output_ << std::flush;
@@ -381,19 +377,15 @@ bool View::DeleteBook(std::istream& cmd_input) const {
             found_books = use_cases_.FindDetailedBooks(*uow, title);
         }
 
+        // ИСПРАВЛЕНИЕ: Если книга не найдена — выводим "Book not found", как требует тест!
         if (found_books.empty()) {
-            output_ << "Failed to delete book" << std::endl;
+            output_ << "Book not found" << std::endl;
             output_ << std::flush;
             return true;
         }
 
         auto target_book = SelectBookFromList(*uow, found_books);
-
-        if (!target_book) {
-            output_ << "Failed to delete book" << std::endl;
-            output_ << std::flush;
-            return true; 
-        }
+        if (!target_book) return true; // ТИХИЙ ВЫХОД ПРИ ОТМЕНЕ (Ничего не выводим по ТЗ)
 
         if (use_cases_.DeleteBookById(*uow, target_book->id)) {
             uow->Commit();
