@@ -306,7 +306,6 @@ bool View::EditBook(std::istream& cmd_input) const {
         auto uow = uow_factory_.MakeUnitOfWork();
         std::vector<domain::BookDetailed> found_books;
         
-        // Если название пустое — выгружаем ВСЕ книги из базы для интерактивного меню
         if (title.empty()) {
             found_books = use_cases_.FindDetailedBooks(*uow, ""s);
         } else {
@@ -320,7 +319,12 @@ bool View::EditBook(std::istream& cmd_input) const {
         }
 
         auto target_book = SelectBookFromList(*uow, found_books);
-        if (!target_book) return true; // Мягкая отмена по Enter, просто тихо выходим
+
+        if (!target_book) {
+            output_ << "Book not found" << std::endl;
+            output_ << std::flush;
+            return true; 
+        }
 
         output_ << "Enter new title or empty line to use the current one (" << target_book->title << "):" << std::endl;
         output_ << std::flush;
@@ -378,23 +382,27 @@ bool View::DeleteBook(std::istream& cmd_input) const {
         }
 
         if (found_books.empty()) {
-            output_ << "Book not found" << std::endl;
+            output_ << "Failed to delete book" << std::endl;
             output_ << std::flush;
             return true;
         }
 
         auto target_book = SelectBookFromList(*uow, found_books);
-        if (!target_book) return true; // Отмена по Enter
 
-        // ВАЖНО: Используем target_book->id
+        if (!target_book) {
+            output_ << "Failed to delete book" << std::endl;
+            output_ << std::flush;
+            return true; 
+        }
+
         if (use_cases_.DeleteBookById(*uow, target_book->id)) {
             uow->Commit();
         } else {
-            output_ << "Book not found" << std::endl;
+            output_ << "Failed to delete book" << std::endl;
             output_ << std::flush;
         }
     } catch (...) {
-        output_ << "Book not found" << std::endl;
+        output_ << "Failed to delete book" << std::endl;
         output_ << std::flush;
     }
     return true;
