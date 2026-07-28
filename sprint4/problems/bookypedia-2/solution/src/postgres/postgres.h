@@ -28,11 +28,12 @@ private:
 class BookRepositoryImpl : public domain::BookRepository {
 public:
     explicit BookRepositoryImpl(pqxx::work& work)
-        : work_{work} {
-    }
+        : work_{work} {}
 
     void Save(const domain::Book& book) override;
+
     std::vector<domain::BookWithAuthor> GetSortedBooksWithAuthors() override;
+
     std::vector<domain::BookDetailed> FindDetailedBooks(const std::string& title) override;
     std::vector<std::string> GetBookTags(const std::string& book_id) override;
     void AddTag(const std::string& book_id, const std::string& tag) override;

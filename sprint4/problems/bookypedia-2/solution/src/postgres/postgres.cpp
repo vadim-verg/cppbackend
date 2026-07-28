@@ -72,42 +72,42 @@ void BookRepositoryImpl::Save(const domain::Book& book) {
     );
 }
 
+// ДОБАВЛЕННЫЙ МЕТОД: Необходим для работы команды ShowBooks
 std::vector<domain::BookWithAuthor> BookRepositoryImpl::GetSortedBooksWithAuthors() {
     auto rows = work_.exec(R"(
         SELECT b.title, a.name AS author_name, b.publication_year 
-        FROM books b
-        INNER JOIN authors a ON b.author_id = a.id
+        FROM books b LEFT JOIN authors a ON b.author_id = a.id
         ORDER BY b.title ASC, a.name ASC, b.publication_year ASC;
     )"_zv);
 
     std::vector<domain::BookWithAuthor> result;
     for (const auto& row : rows) {
+        std::string author_name = row["author_name"].is_null() ? ""s : row["author_name"].as<std::string>();
         result.push_back({
             row["title"].as<std::string>(),
-            row["author_name"].as<std::string>(),
+            author_name,
             row["publication_year"].as<int>()
         });
     }
     return result;
 }
 
+// ИСПРАВЛЕННЫЙ МЕТОД: Убран дубликат, строго используется LEFT JOIN
 std::vector<domain::BookDetailed> BookRepositoryImpl::FindDetailedBooks(const std::string& title) {
     pqxx::result rows;
-    
-    // Очищаем входную строку от возможных пробелов по краям перед запросом
     std::string clean_title = title;
     boost::algorithm::trim(clean_title);
 
     if (clean_title.empty()) {
         rows = work_.exec(R"(
             SELECT b.id, b.title, a.name AS author_name, b.publication_year 
-            FROM books b INNER JOIN authors a ON b.author_id = a.id
+            FROM books b LEFT JOIN authors a ON b.author_id = a.id
             ORDER BY b.title ASC, a.name ASC, b.publication_year ASC;
         )"_zv);
     } else {
         rows = work_.exec_params(R"(
             SELECT b.id, b.title, a.name AS author_name, b.publication_year 
-            FROM books b INNER JOIN authors a ON b.author_id = a.id
+            FROM books b LEFT JOIN authors a ON b.author_id = a.id
             WHERE b.title = $1
             ORDER BY b.title ASC, a.name ASC, b.publication_year ASC;
         )"_zv, clean_title);
@@ -115,10 +115,12 @@ std::vector<domain::BookDetailed> BookRepositoryImpl::FindDetailedBooks(const st
 
     std::vector<domain::BookDetailed> result;
     for (const auto& row : rows) {
+        std::string author_name = row["author_name"].is_null() ? ""s : row["author_name"].as<std::string>();
+        
         result.push_back({
             row["id"].as<std::string>(),
             row["title"].as<std::string>(),
-            row["author_name"].as<std::string>(),
+            author_name,
             row["publication_year"].as<int>()
         });
     }
@@ -126,8 +128,7 @@ std::vector<domain::BookDetailed> BookRepositoryImpl::FindDetailedBooks(const st
 }
 
 std::vector<std::string> BookRepositoryImpl::GetBookTags(const std::string& book_id) {
-    // ORDER BY tag ASC обязателен для прохождения тестов на сравнение списков тегов!
-    auto rows = work_.exec_params("SELECT tag FROM book_tags WHERE book_id = $1 ORDER BY tag ASC;"_zv, book_id);
+    auto rows = work_.exec_params("SELECT tag FROM book_tags WHERE book_id = $1::uuid ORDER BY tag ASC;"_zv, book_id);
     std::vector<std::string> tags;
     for (const auto& row : rows) {
         tags.push_back(row["tag"].as<std::string>());
