@@ -69,6 +69,7 @@ public:
     void SaveRecord(const std::string& name, int score, double play_time) {
         auto conn = pool_->GetConnection();
         pqxx::work w(*conn);
+        // Используем совместимый exec_params
         w.exec_params(
             "INSERT INTO retired_players (name, score, play_time) VALUES ($1, $2, $3);",
             name, score, play_time
@@ -79,21 +80,24 @@ public:
 
     std::vector<Record> GetRecords(size_t start, size_t max_items) {
         auto conn = pool_->GetConnection();
-        pqxx::read_work w(*conn);
-        auto rows = w.exec_params(
+        // Используем универсальный pqxx::work вместо read_work
+        pqxx::work w(*conn);
+        pqxx::result rows = w.exec_params(
             "SELECT name, score, play_time FROM retired_players "
             "ORDER BY score DESC, play_time ASC, name ASC LIMIT $1 OFFSET $2;",
             max_items, start
             );
+        w.commit(); // Закрываем транзакцию чтения
         pool_->ReturnConnection(conn);
 
         std::vector<Record> res;
         for (const auto& row : rows) {
-            res.push_back({
-                row[0].as<std::string>(),
-                row[1].as<int>(),
-                row[2].as<double>()
-            });
+            // Классический способ извлечения данных в старых и новых версиях libpqxx
+            std::string name = row["name"].as<std::string>();
+            int score = row["score"].as<int>();
+            double play_time = row["play_time"].as<double>();
+
+            res.push_back({name, score, play_time});
         }
         return res;
     }
