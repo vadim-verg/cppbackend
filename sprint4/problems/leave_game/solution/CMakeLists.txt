@@ -31,7 +31,7 @@ else()
     message(FATAL_ERROR "Conan build info not found! Run 'conan install' first.")
 endif()
 
-# Создаем современные таргеты Conan
+# Создаем современные таргеты Conan (генерирует таргеты вида CONAN_PKG::...)
 conan_basic_setup(TARGETS)
 
 # Находим системные потоки Linux
@@ -64,13 +64,14 @@ add_executable(game_server
     src/loot_generator.h
     src/loot_generator.cpp
     src/loot_provider.h
-    src/postgres.h
+    src/postgres.h      
 )
 
 # Линковка через таргеты Конана и системные библиотеки
 if(WIN32)
     target_link_libraries(game_server PRIVATE 
         CONAN_PKG::boost 
+        CONAN_PKG::libpqxx # Подключаем для Windows через Конан
         ws2_32 
         mswsock
     )
@@ -80,6 +81,7 @@ else()
     target_link_libraries(game_server PRIVATE 
         CONAN_PKG::boost
         ${CONAN_LIBS_BOOST}
+        CONAN_PKG::libpqxx # Подключаем таргет Конана для Linux
         Threads::Threads
     )
 endif()
