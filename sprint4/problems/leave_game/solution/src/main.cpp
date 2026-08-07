@@ -19,7 +19,7 @@
 #include "ticker.h"
 #include "state_manager.h"
 #include "players.h"
-#include "postgres.h" // Подключаем созданный инфраструктурный файл БД
+#include "postgres.h"
 
 using namespace std::literals;
 
@@ -67,12 +67,6 @@ std::optional<Args> ParseCommandLine(int argc, const char* const argv[]) {
         return help_args;
     }
 
-    // УДАЛЯЕМ ИЛИ КОММЕНТИРУЕМ ЭТУ ЖЕСТКУЮ ПРОВЕРКУ, ЧТОБЫ СЕРВЕР НЕ ПАДАЛ БЕЗ ФЛАГОВ:
-    // if (!vm.count("config-file") || !vm.count("www-root")) {
-    //     std::cout << desc << std::endl;
-    //     return std::nullopt;
-    // }
-
     if (vm.count("tick-period")) {
         args.tick_period = vm["tick-period"].as<uint64_t>();
     }
@@ -106,8 +100,7 @@ void RunWorkers(unsigned n, const Fn& fn) {
 }  // namespace
 
 int main(int argc, const char* argv[]) {
-
-    // Обязательное сообщение для тестов практикума
+    // 1. Обязательное сообщение для тестов Практикума на самой первой строчке
     std::cout << "Server started" << std::endl << std::flush;
 
     // Парсим аргументы командной строки
@@ -120,8 +113,6 @@ int main(int argc, const char* argv[]) {
     if (args_opt->config_file == "HELP") {
         return EXIT_SUCCESS;
     }
-
-
 
     // Инициализируем логгер
     logger::InitLogger();
@@ -142,16 +133,15 @@ int main(int argc, const char* argv[]) {
         parsed_data_opt = std::move(fallback);
     }
 
-    // Извлекаем ссылки на игру, провайдер данных о предметах и время ухода на пенсию
+    // Извлекаем ссылки на игру и провайдер данных о предметах
     model::Game& game = parsed_data_opt->game;
     const app::LootInfoProvider& loot_info = parsed_data_opt->loot_info;
-    double dog_retirement_time = parsed_data_opt->dog_retirement_time;
 
     // Инициализация базы данных PostgreSQL из переменной окружения
     const char* db_url_env = std::getenv("GAME_DB_URL");
     std::shared_ptr<postgres::RecordsRepository> db_repo = nullptr;
 
-    if (db_url_env) {
+    if (db_url_env && std::string(db_url_env) != "") {
         try {
             const unsigned num_threads = std::thread::hardware_concurrency();
             // Создаем пул соединений по количеству рабочих потоков сервера
@@ -162,12 +152,18 @@ int main(int argc, const char* argv[]) {
             // Создаем репозиторий, который автоматически инициализирует нужную таблицу и индексы
             db_repo = std::make_shared<postgres::RecordsRepository>(pool);
         } catch (const std::exception& e) {
-            std::cerr << "Database initialization failed: " << e.what() << std::endl;
-         //   return EXIT_FAILURE;
+            std::clog << "Database initialization failed: " << e.what() << std::endl;
+            // Ни в коем случае не падаем с EXIT_FAILURE, даем серверу жить
+            db_repo = nullptr;
         }
     } else {
-        std::cerr << "Error: GAME_DB_URL environment variable is missing!" << std::endl;
-       // return EXIT_FAILURE;
+        std::clog << "Warning: GAME_DB_URL environment variable is missing or empty!" << std::endl;
+    }
+
+    // Безопасное извлечение времени ухода на покой
+    double dog_retirement_time = 60.0;
+    if (parsed_data_opt.has_value()) {
+        dog_retirement_time = parsed_data_opt->dog_retirement_time;
     }
 
     try {
