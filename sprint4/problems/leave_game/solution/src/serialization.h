@@ -37,7 +37,7 @@ void serialize(Archive& ar, BagItem& item, [[maybe_unused]] const unsigned versi
 
 namespace serialization {
 
-// Снимок Собаки
+// Снимок Собаки с учётом игрового времени и времени бездействия
 class DogRepr {
 public:
     DogRepr() = default;
@@ -50,7 +50,10 @@ public:
         , direction_(dog.GetDirection())
         , score_(dog.GetScore())
         , bag_capacity_(dog.GetBagCapacity())
-        , bag_(dog.GetBag()) {}
+        , bag_(dog.GetBag())
+        , play_time_(dog.GetPlayTime()) // <--- СОХРАНЯЕМ ВРЕМЯ ИГРЫ
+        , idle_time_(dog.GetIdleTime()) // <--- СОХРАНЯЕМ ВРЕМЯ БЕЗДЕЙСТВИЯ
+    {}
 
     [[nodiscard]] model::Dog Restore() const {
         model::Dog dog{id_, name_, pos_};
@@ -58,6 +61,8 @@ public:
         dog.SetDirection(direction_);
         dog.SetBagCapacity(bag_capacity_);
         dog.AddScore(score_);
+        dog.UpdateTimeCounters(play_time_);
+
         for (const auto& item : bag_) {
             if (!dog.AddToBag(item)) {
                 throw std::runtime_error("Failed to restore dog bag content");
@@ -76,6 +81,8 @@ public:
         ar & score_;
         ar & bag_capacity_;
         ar & bag_;
+        ar & play_time_;
+        ar & idle_time_;
     }
 
 private:
@@ -87,6 +94,10 @@ private:
     int score_ = 0;
     size_t bag_capacity_ = 0;
     std::vector<model::BagItem> bag_;
+
+    // Новые сериализуемые поля снимка
+    double play_time_ = 0.0;
+    double idle_time_ = 0.0;
 };
 
 // Снимок Потерянного предмета

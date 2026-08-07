@@ -159,11 +159,11 @@ int main(int argc, const char* argv[]) {
             db_repo = std::make_shared<postgres::RecordsRepository>(pool);
         } catch (const std::exception& e) {
             std::cerr << "Database initialization failed: " << e.what() << std::endl;
-            return EXIT_FAILURE;
+         //   return EXIT_FAILURE;
         }
     } else {
         std::cerr << "Error: GAME_DB_URL environment variable is missing!" << std::endl;
-        return EXIT_FAILURE;
+       // return EXIT_FAILURE;
     }
 
     try {
