@@ -164,8 +164,10 @@ public:
     // Также добавьте простой метод для инициализации параметров времени:
     void SetupSaveParameters(std::optional<std::string> state_file, std::optional<uint32_t> period_ms) {
         state_file_ = std::move(state_file);
-        if (period_ms) {
-            save_state_period_ = std::chrono::milliseconds(*period_ms);
+        if (period_ms.has_value()) {
+            save_state_period_ = std::chrono::milliseconds(period_ms.value());
+        } else {
+            save_state_period_ = std::nullopt;
         }
     }
 

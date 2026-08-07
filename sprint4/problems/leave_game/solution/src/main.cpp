@@ -144,30 +144,22 @@ int main(int argc, const char* argv[]) {
     if (db_url_env && std::string(db_url_env) != "") {
         try {
             const unsigned num_threads = std::thread::hardware_concurrency();
-            // Создаем пул соединений по количеству рабочих потоков сервера
             auto pool = std::make_shared<postgres::ConnectionPool>(
                 std::max(1u, num_threads),
                 std::string(db_url_env)
                 );
-            // Создаем репозиторий, который автоматически инициализирует нужную таблицу и индексы
             db_repo = std::make_shared<postgres::RecordsRepository>(pool);
         } catch (const std::exception& e) {
             std::clog << "Database initialization failed: " << e.what() << std::endl;
-            // Ни в коем случае не падаем с EXIT_FAILURE, даем серверу жить
             db_repo = nullptr;
         }
-    } else {
-        std::clog << "Warning: GAME_DB_URL environment variable is missing or empty!" << std::endl;
     }
 
-    // Безопасное извлечение времени ухода на покой
-    double dog_retirement_time = 60.0;
-    if (parsed_data_opt.has_value()) {
-        dog_retirement_time = parsed_data_opt->dog_retirement_time;
-    }
+    // Читаем время ухода на покой
+    double dog_retirement_time = parsed_data_opt->dog_retirement_time;
 
     try {
-        // Инициализируем прикладной слой с поддержкой репозитория БД и времени бездействия
+        // Инициализируем прикладной слой
         app::Application app(game, db_repo, dog_retirement_time);
         app.SetSpawnRandomize(args_opt->randomize_spawn_points);
         if (args_opt->tick_period.has_value()) {

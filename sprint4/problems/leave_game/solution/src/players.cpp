@@ -326,13 +326,14 @@ void Application::Tick(double delta_time_seconds) {
     auto delta_ms = std::chrono::milliseconds(static_cast<long long>(delta_time_seconds * 1000.0));
     mutable_game.Tick(delta_ms);
 
-    // 5. Контроль таймеров автоматического сохранения состояния (если настроен --state-file)
+    // 5. Контроль таймеров автоматического сохранения состояния
     should_save_state_ = false;
 
-    if (state_file_ && save_state_period_) {
+    // Сначала жестко проверяем, что ОБА опционала имеют значения, прежде чем их разыменовывать!
+    if (state_file_.has_value() && save_state_period_.has_value()) {
         time_since_last_save_ += delta_ms;
-        if (time_since_last_save_ >= *save_state_period_) {
-            should_save_state_ = true; // Выставляем флаг, сигнализируя серверу о необходимости сделать дамп
+        if (time_since_last_save_ >= save_state_period_.value()) {
+            should_save_state_ = true;
             time_since_last_save_ = std::chrono::milliseconds(0);
         }
     }
