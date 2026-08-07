@@ -79,8 +79,10 @@ public:
                             std::shared_ptr<StateManager> state_manager)
         : game_{game}
         , static_path_{std::move(static_path)}
+        , app_{app}
         , api_handler_{app, state_manager}
-        , loot_info_{loot_info} {}
+        , loot_info_{loot_info}
+    {}
 
     RequestHandler(const RequestHandler&) = delete;
     RequestHandler& operator=(const RequestHandler&) = delete;
@@ -226,9 +228,9 @@ public:
 private:
     model::Game& game_;
     std::filesystem::path static_path_;
+    app::Application& app_;
     ApiHandler api_handler_;
     const app::LootInfoProvider& loot_info_;
-    app::Application& app_;
 
     template <typename Body, typename Allocator>
     static http::response<http::string_body> MakeBaseResponse(
