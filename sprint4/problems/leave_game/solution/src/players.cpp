@@ -15,7 +15,7 @@ std::string PlayerTokens::GenerateToken() {
        << std::setw(16) << generator_();
     return ss.str();
 }
-
+/*
 std::string PlayerTokens::AddPlayer(std::shared_ptr<Player> player) {
     std::string token = GenerateToken();
     token_to_player_[token] = std::move(player);
@@ -28,7 +28,7 @@ std::shared_ptr<Player> PlayerTokens::FindPlayerByToken(const std::string& token
     }
     return nullptr;
 }
-
+*/
 std::optional<JoinGameResult> Application::JoinGame(const std::string& user_name, const std::string& map_id) {
     auto map_ptr = game_.FindMap(model::Map::Id{map_id});
     if (!map_ptr) {
@@ -70,7 +70,9 @@ std::optional<std::vector<std::shared_ptr<Player>>> Application::GetPlayersInSes
     std::vector<std::shared_ptr<Player>> session_players;
     const std::string& target_map = current_player->GetMapId();
 
-    for (const auto& [id, player] : player_manager_.GetPlayers()) {
+    // Запрашиваем безопасную копию
+    auto all_players = player_manager_.GetPlayersCopy();
+    for (const auto& [id, player] : all_players) {
         if (player->GetMapId() == target_map) {
             session_players.push_back(player);
         }
@@ -174,31 +176,26 @@ void Application::Tick(double delta_time_seconds) {
     std::unordered_map<std::string, std::vector<std::shared_ptr<model::Dog>>> map_to_dogs;
     std::unordered_map<uint32_t, model::Point2D> dog_start_positions;
 
-    // Список токенов игроков, которых нужно отправить на пенсию на этом тике
     std::vector<std::string> players_to_retire;
 
-    // 1. Сначала обновляем позиции активных собак и инкрементируем счетчики времени
-    for (const auto& [token, player] : player_tokens_.GetTokenMap()) {
+    // ИСПОЛЬЗУЕМ БЕЗОПАСНУЮ КОПИЮ КАРТЫ ДЛЯ ИТЕРИРОВАНИЯ
+    auto token_map_copy = player_tokens_.GetTokenMapCopy();
+
+    for (const auto& [token, player] : token_map_copy) {
         auto dog_ptr = player->GetDog();
         if (!dog_ptr) continue;
 
         auto map_ptr = game_.FindMap(model::Map::Id{player->GetMapId()});
         if (!map_ptr) continue;
 
-        // Фиксируем стартовую позицию для провайдера коллизий
         dog_start_positions[dog_ptr->GetId().operator*()] = dog_ptr->GetPosition();
 
-        // Физическое перемещение собаки и обработка столкновений со стенами (если есть)
         UpdateDogPosition(*dog_ptr, *map_ptr, delta_time_seconds);
-
-        // Обновляем общее игровое время и время бездействия внутри класса Dog
         dog_ptr->UpdateTimeCounters(delta_time_seconds);
 
-        // Проверяем критерий отправки на заслуженный отдых по неактивности
         if (dog_ptr->GetIdleTime() >= dog_retirement_time_) {
             players_to_retire.push_back(token);
         } else {
-            // Если собака активна, добавляем её в список для обработки коллизий на этой карте
             map_to_dogs[player->GetMapId()].push_back(dog_ptr);
         }
     }
