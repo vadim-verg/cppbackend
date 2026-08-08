@@ -1,11 +1,11 @@
 #pragma once
 #include <pqxx/pqxx>
 #include <mutex>
-#include <condition_variable>
 #include <queue>
 #include <memory>
 #include <string>
 #include <vector>
+#include <stdexcept>
 
 namespace postgres {
 
@@ -16,12 +16,11 @@ public:
     ConnectionPool(size_t capacity, std::string conn_str)
         : conn_str_(std::move(conn_str))
     {
-        // Создаем стартовый запас соединений
         for (size_t i = 0; i < capacity; ++i) {
             try {
                 pool_.emplace(std::make_shared<pqxx::connection>(conn_str_));
             } catch (...) {
-                // Если база еще не поднялась, создадим позже на лету
+                // Если база не успела подняться, создадим соединение на лету в GetConnection
             }
         }
     }
@@ -33,12 +32,9 @@ public:
             pool_.pop();
             return conn;
         }
-        // Если пул пуст под высокой нагрузкой, создаем новое соединение на лету,
-        // чтобы потоки сервера никогда не зависали в cond_.wait!
         try {
             return std::make_shared<pqxx::connection>(conn_str_);
         } catch (...) {
-            // В случае полного падения СУБД возвращаем nullptr
             return nullptr;
         }
     }
@@ -46,8 +42,7 @@ public:
     void ReturnConnection(ConnectionPtr conn) {
         if (!conn) return;
         std::lock_guard<std::mutex> lock(mutex_);
-        // Ограничиваем максимальный размер пула, чтобы не плотить лишние сессии в Postgres
-        if (pool_.size() < 50) {
+        if (pool_.size() < 20) { // Ограничиваем пул сверху во избежание утечки дескрипторов
             pool_.push(conn);
         }
     }
@@ -69,23 +64,33 @@ public:
     explicit RecordsRepository(std::shared_ptr<ConnectionPool> pool) : pool_(pool) {
         auto conn = pool_->GetConnection();
         if (!conn) {
-            throw std::runtime_error("Database connection failed during repository initialization");
+            throw std::runtime_error("Failed to connect to DB during repository init");
         }
+
         try {
-            pqxx::work w(*conn);
-            w.exec(R"(
-            CREATE TABLE IF NOT EXISTS retired_players (
-                id SERIAL PRIMARY KEY,
-                name VARCHAR(100) NOT NULL,
-                score INT NOT NULL,
-                play_time DOUBLE PRECISION NOT NULL
-            );
-        )");
-            w.exec(R"(
-            CREATE INDEX IF NOT EXISTS idx_retired_players_sort
-            ON retired_players (score DESC, play_time ASC, name ASC);
-        )");
-            w.commit();
+            // Транзакция 1: Создаем таблицу
+            {
+                pqxx::work w(*conn);
+                w.exec(R"(
+                    CREATE TABLE IF NOT EXISTS retired_players (
+                        id SERIAL PRIMARY KEY,
+                        name VARCHAR(100) NOT NULL,
+                        score INT NOT NULL,
+                        play_time DOUBLE PRECISION NOT NULL
+                    );
+                )");
+                w.commit();
+            }
+
+            // Транзакция 2: Отдельно создаем индекс, чтобы избежать дедлоков каталога СУБД при автотестах
+            {
+                pqxx::work w(*conn);
+                w.exec(R"(
+                    CREATE INDEX IF NOT EXISTS idx_retired_players_sort
+                    ON retired_players (score DESC, play_time ASC, name ASC);
+                )");
+                w.commit();
+            }
         } catch (...) {
             pool_->ReturnConnection(conn);
             throw;
@@ -95,7 +100,7 @@ public:
 
     void SaveRecord(const std::string& name, int score, double play_time) {
         auto conn = pool_->GetConnection();
-        if (!conn) return; // Защита от краша
+        if (!conn) return;
         try {
             pqxx::work w(*conn);
             w.exec_params(
@@ -110,9 +115,11 @@ public:
     std::vector<Record> GetRecords(size_t start, size_t max_items) {
         std::vector<Record> res;
         auto conn = pool_->GetConnection();
-        if (!conn) return res; // Защита от краша
+        if (!conn) return res;
         try {
             pqxx::work w(*conn);
+            // СТРОГОЕ ИСПРАВЛЕНИЕ ТИПОВ: приводим size_t к int,
+            // иначе под Linux exec_params ломает биндинг LIMIT/OFFSET
             pqxx::result rows = w.exec_params(
                 "SELECT name, score, play_time FROM retired_players "
                 "ORDER BY score DESC, play_time ASC, name ASC LIMIT $1 OFFSET $2;",
