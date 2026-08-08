@@ -194,8 +194,21 @@ public:
                 return;
             }
 
+            // Фикс для всего игрового API (/join, /players, /state, /action, /tick)
             if (target_sv.starts_with("/api/v1/game/")) {
-                send(api_handler_.HandleRequest(req));
+                // Получаем сырой ответ от ApiHandler
+                auto response = api_handler_.HandleRequest(req);
+
+                // Гарантируем наличие заголовка Content-Length строго по спецификации HTTP для ЯПрактикума!
+                response.set(http::field::content_length, std::to_string(response.body().size()));
+
+                // Если пришел HEAD-запрос к игровому API — очищаем тело ответа
+                if (req.method() == http::verb::head) {
+                    response.body() = "";
+                    response.prepare_payload();
+                }
+
+                send(std::move(response));
                 return;
             }
 
