@@ -158,9 +158,10 @@ int main(int argc, const char* argv[]) {
 
     if (db_url_env && std::string(db_url_env) != "") {
         try {
-            const unsigned num_threads = std::thread::hardware_concurrency();
+            constexpr size_t MAX_DB_CONNECTIONS = 4;
+
             auto pool = std::make_shared<postgres::ConnectionPool>(
-                std::max(1u, num_threads),
+                MAX_DB_CONNECTIONS,
                 std::string(db_url_env)
                 );
             db_repo = std::make_shared<postgres::RecordsRepository>(pool);
