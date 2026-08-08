@@ -38,14 +38,14 @@ public:
     std::string GenerateToken();
 
     std::string AddPlayer(std::shared_ptr<Player> player) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         std::string token = GenerateToken();
         token_to_player_[token] = std::move(player);
         return token;
     }
 
     std::shared_ptr<Player> FindPlayerByToken(const std::string& token) const {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         if (auto it = token_to_player_.find(token); it != token_to_player_.end()) {
             return it->second;
         }
@@ -59,17 +59,17 @@ public:
 
     // Для безопасного итерирования в параллельных потоках
     std::unordered_map<std::string, std::shared_ptr<Player>> GetTokenMapCopy() const {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         return token_to_player_;
     }
 
     void RemoveToken(const std::string& token) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         token_to_player_.erase(token);
     }
 
     void RestoreToken(const std::string& token, std::shared_ptr<Player> player) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         token_to_player_[token] = std::move(player);
     }
 
@@ -77,13 +77,13 @@ private:
     std::random_device rd_;
     std::mt19937_64 generator_{rd_()};
     std::unordered_map<std::string, std::shared_ptr<Player>> token_to_player_;
-    mutable std::mutex mutex_;
+    mutable std::recursive_mutex mutex_;
 };
 
 class PlayerManager {
 public:
     std::shared_ptr<Player> CreatePlayer(const std::string& name, const std::string& map_id) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         uint32_t id = next_id_++;
         auto player = std::make_shared<Player>(id, name, map_id);
         players_[id] = player;
@@ -97,34 +97,34 @@ public:
 
     // Метод для безопасных циклов
     std::unordered_map<uint32_t, std::shared_ptr<Player>> GetPlayersCopy() const {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         return players_;
     }
 
     void RemovePlayer(uint32_t id) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         players_.erase(id);
     }
 
     void RestorePlayer(std::shared_ptr<Player> player) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         players_[player->GetId()] = player;
     }
 
     void SetNextId(uint32_t id) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         next_id_ = id;
     }
 
     uint32_t GetNextIdInternal() const {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         return next_id_;
     }
 
 private:
     uint32_t next_id_ = 0;
     std::unordered_map<uint32_t, std::shared_ptr<Player>> players_;
-    mutable std::mutex mutex_;
+    mutable std::recursive_mutex mutex_;
 };
 
 // Результат входа в игру
