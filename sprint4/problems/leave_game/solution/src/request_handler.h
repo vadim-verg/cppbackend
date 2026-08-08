@@ -115,9 +115,16 @@ public:
                     }
                     pos += key.size();
                     size_t end_pos = query_str.find('&', pos);
-                    std::string val = std::string(query_str.substr(pos, end_pos - pos));
+
+                    std::string_view val_sv;
+                    if (end_pos == std::string_view::npos) {
+                        val_sv = query_str.substr(pos);
+                    } else {
+                        val_sv = query_str.substr(pos, end_pos - pos);
+                    }
+
                     try {
-                        return std::stoull(val);
+                        return std::stoull(std::string(val_sv));
                     } catch (...) {
                         return std::nullopt;
                     }

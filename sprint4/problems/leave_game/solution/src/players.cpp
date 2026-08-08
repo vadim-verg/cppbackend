@@ -172,15 +172,16 @@ public:
 
 void Application::Tick(double delta_time_seconds) {
     auto& mutable_game = const_cast<model::Game&>(game_);
+    auto delta_ms = std::chrono::milliseconds(static_cast<long long>(delta_time_seconds * 1000.0));
 
     std::unordered_map<std::string, std::vector<std::shared_ptr<model::Dog>>> map_to_dogs;
     std::unordered_map<uint32_t, model::Point2D> dog_start_positions;
-
     std::vector<std::string> players_to_retire;
 
     // ИСПОЛЬЗУЕМ БЕЗОПАСНУЮ КОПИЮ КАРТЫ ДЛЯ ИТЕРИРОВАНИЯ
     auto token_map_copy = player_tokens_.GetTokenMapCopy();
 
+    // 1. Двигаем собак и обновляем их таймеры
     for (const auto& [token, player] : token_map_copy) {
         auto dog_ptr = player->GetDog();
         if (!dog_ptr) continue;
@@ -188,6 +189,7 @@ void Application::Tick(double delta_time_seconds) {
         auto map_ptr = game_.FindMap(model::Map::Id{player->GetMapId()});
         if (!map_ptr) continue;
 
+        // Запоминаем стартовую позицию ДО перемещения
         dog_start_positions[dog_ptr->GetId().operator*()] = dog_ptr->GetPosition();
 
         UpdateDogPosition(*dog_ptr, *map_ptr, delta_time_seconds);
@@ -206,16 +208,7 @@ void Application::Tick(double delta_time_seconds) {
         if (player) {
             auto dog = player->GetDog();
             if (dog && db_repo_) {
-                // Атомарно записываем трудовые заслуги пса в PostgreSQL таблицу рекордов
                 db_repo_->SaveRecord(dog->GetName(), dog->GetScore(), dog->GetPlayTime());
-            }
-
-            // Уменьшаем счетчик собак на соответствующей карте в модели игры
-            if (dog) {
-                auto map_id = model::Map::Id{player->GetMapId()};
-                if (game_.GetDogCount(map_id) > 0) {
-                    mutable_game.SetDogCount(map_id, game_.GetDogCount(map_id) - 1);
-                }
             }
 
             // Полностью аннулируем токен авторизации и удаляем игрока из менеджера сессий
@@ -225,7 +218,17 @@ void Application::Tick(double delta_time_seconds) {
         }
     }
 
-    // 3. Расчёт коллизий и сбор предметов отдельно для каждой игровой карты (только среди активных собак)
+    // Обновляем счетчики собак в модели игры СРАЗУ ПОСЛЕ удаления,
+    // чтобы генератор предметов ниже опирался на актуальное число игроков!
+    for (const auto& map : game_.GetMaps()) {
+        mutable_game.SetDogCount(map.GetId(), GetDogCountOnMap(*map.GetId()));
+    }
+
+    // 3. Продвигаем внутренние часы генераторов лута модели игры ДО расчета коллизий!
+    // Благодаря этому предметы спавнятся вовремя и собаки могут их подобрать прямо сейчас.
+    mutable_game.Tick(delta_ms);
+
+    // 4. Расчёт коллизий и сбор предметов отдельно для каждой игровой карты (только среди активных собак)
     for (const auto& [map_id_str, dogs] : map_to_dogs) {
         model::Map::Id map_id{map_id_str};
         auto map_ptr = game_.FindMap(map_id);
@@ -238,12 +241,15 @@ void Application::Tick(double delta_time_seconds) {
             model::Point2D start_pos = dog_start_positions[dog_ptr->GetId().operator*()];
             model::Point2D end_pos = dog_ptr->GetPosition();
 
-            provider.gatherers.push_back(collision_detector::Gatherer{
-                .start_pos = {start_pos.x, start_pos.y},
-                .end_pos = {end_pos.x, end_pos.y},
-                .width = 0.3 // ПОЛОВИНА ШИРИНЫ ИГРОКА (0.6 / 2)
-            });
-            provider.dog_ptrs.push_back(dog_ptr);
+            // Включаем в коллизии собак, которые сдвинулись, даже если их скорость в конце тика стала 0
+            if (start_pos.x != end_pos.x || start_pos.y != end_pos.y) {
+                provider.gatherers.push_back(collision_detector::Gatherer{
+                    .start_pos = {start_pos.x, start_pos.y},
+                    .end_pos = {end_pos.x, end_pos.y},
+                    .width = 0.6 // СТРОГО ПО ТЗ: РАДИУС ИГРОКА 0.6 (не делим на 2)
+                });
+                provider.dog_ptrs.push_back(dog_ptr);
+            }
         }
 
         // Наполняем потерянные предметы (LOST_OBJECT)
@@ -251,7 +257,7 @@ void Application::Tick(double delta_time_seconds) {
         for (const auto& [obj_id, obj] : lost_objects) {
             provider.items.push_back(collision_detector::Item{
                 .position = {obj.pos.x, obj.pos.y},
-                .width = 0.0 // ШИРИНA ПРЕДМЕТА
+                .width = 0.0 // РАДИУС ПРЕДМЕТА 0.0
             });
             provider.item_infos.push_back(ProviderItemInfo{
                 .type = ProviderItemType::LOST_OBJECT,
@@ -266,7 +272,7 @@ void Application::Tick(double delta_time_seconds) {
             auto office_pos = offices[idx].GetPosition();
             provider.items.push_back(collision_detector::Item{
                 .position = {static_cast<double>(office_pos.x), static_cast<double>(office_pos.y)},
-                .width = 0.25 // ПОЛОВИНА ШИРИНЫ БАЗЫ (0.5 / 2)
+                .width = 0.5 // СТРОГО ПО ТЗ: РАДИУС БАЗЫ 0.5 (не делим на 2)
             });
             provider.item_infos.push_back(ProviderItemInfo{
                 .type = ProviderItemType::OFFICE,
@@ -275,10 +281,9 @@ void Application::Tick(double delta_time_seconds) {
             });
         }
 
-        // Запускаем расчёт пересечений на отрезках путей, если на карте есть и собиратели, и предметы
+        // Запускаем расчёт пересечений на отрезках путей
         if (!provider.gatherers.empty() && !provider.items.empty()) {
             auto events = collision_detector::FindGatherEvents(provider);
-
             std::unordered_set<unsigned> collected_in_tick;
 
             for (const auto& event : events) {
@@ -286,7 +291,6 @@ void Application::Tick(double delta_time_seconds) {
                 const auto& item_info = provider.item_infos.at(event.item_id);
 
                 if (item_info.type == ProviderItemType::LOST_OBJECT) {
-                    // Если предмет уже кто-то забрал раньше или рюкзак полон — пропускаем
                     if (collected_in_tick.contains(item_info.id) || dog_ptr->IsBagFull()) {
                         continue;
                     }
@@ -295,38 +299,28 @@ void Application::Tick(double delta_time_seconds) {
                     if (lost_objects.contains(obj_id)) {
                         unsigned obj_type = lost_objects.at(obj_id).type;
 
-                        // Пытаемся добавить в рюкзак собаки
                         if (dog_ptr->AddToBag(model::BagItem{.id = obj_id, .type = obj_type})) {
                             collected_in_tick.insert(obj_id);
-                            // Безвозвратно стираем подобранный предмет из игрового мира модели
                             mutable_game.RemoveLostObject(map_id, obj_id);
                         }
                     }
                 }
                 else if (item_info.type == ProviderItemType::OFFICE) {
-                    // Cдаём всё содержимое рюкзака в офис
                     const auto& bag = dog_ptr->GetBag();
                     if (!bag.empty()) {
                         for (const auto& bag_item : bag) {
-                            // Начисляем очки в зависимости от ценности типа лута на текущей карте
                             int item_points = map_ptr->GetLootValue(bag_item.type);
                             dog_ptr->AddScore(item_points);
                         }
-                        dog_ptr->ClearBag(); // Полностью опустошаем рюкзак
+                        dog_ptr->ClearBag();
                     }
                 }
             }
         }
     }
 
-    // 4. Продвигаем внутренние часы генераторов лута модели игры
-    auto delta_ms = std::chrono::milliseconds(static_cast<long long>(delta_time_seconds * 1000.0));
-    mutable_game.Tick(delta_ms);
-
     // 5. Контроль таймеров автоматического сохранения состояния
     should_save_state_ = false;
-
-    // Сначала жестко проверяем, что ОБА опционала имеют значения, прежде чем их разыменовывать!
     if (state_file_.has_value() && save_state_period_.has_value()) {
         time_since_last_save_ += delta_ms;
         if (time_since_last_save_ >= save_state_period_.value()) {

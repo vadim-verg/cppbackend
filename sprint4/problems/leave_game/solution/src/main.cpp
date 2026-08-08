@@ -117,7 +117,9 @@ int main(int argc, const char* argv[]) {
     // Инициализируем логгер
     logger::InitLogger();
 
-    std::cout << "{\"message\": \"server started\", \"data\": {\"port\": 8080, \"address\": \"0.0.0.0\"}}" << std::endl;
+//    std::cout << "{\"message\": \"server started\", \"data\": {\"port\": 8080, \"address\": \"0.0.0.0\"}}" << std::endl;
+
+    logger::LogServerStarted(8080, "0.0.0.0");
 
     std::optional<json_loader::ParsedGameData> parsed_data_opt;
 

@@ -68,8 +68,12 @@ class RecordsRepository {
 public:
     explicit RecordsRepository(std::shared_ptr<ConnectionPool> pool) : pool_(pool) {
         auto conn = pool_->GetConnection();
-        pqxx::work w(*conn);
-        w.exec(R"(
+        if (!conn) {
+            throw std::runtime_error("Database connection failed during repository initialization");
+        }
+        try {
+            pqxx::work w(*conn);
+            w.exec(R"(
             CREATE TABLE IF NOT EXISTS retired_players (
                 id SERIAL PRIMARY KEY,
                 name VARCHAR(100) NOT NULL,
@@ -77,11 +81,15 @@ public:
                 play_time DOUBLE PRECISION NOT NULL
             );
         )");
-        w.exec(R"(
+            w.exec(R"(
             CREATE INDEX IF NOT EXISTS idx_retired_players_sort
             ON retired_players (score DESC, play_time ASC, name ASC);
         )");
-        w.commit();
+            w.commit();
+        } catch (...) {
+            pool_->ReturnConnection(conn);
+            throw;
+        }
         pool_->ReturnConnection(conn);
     }
 
