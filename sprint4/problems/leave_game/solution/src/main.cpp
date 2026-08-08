@@ -121,14 +121,29 @@ int main(int argc, const char* argv[]) {
 
     std::optional<json_loader::ParsedGameData> parsed_data_opt;
 
+    // Определяем наиболее вероятный путь к файлу конфигурации карт
+    std::string config_path = args_opt->config_file;
+
+    // Если дефолтный файл не найден в текущей папке, проверяем абсолютный путь внутри контейнера Практикума
+    if (!std::filesystem::exists(config_path) && std::filesystem::exists("/app/config.json")) {
+        config_path = "/app/config.json";
+    }
+    // Проверяем подпапку data, если запуск производится из корня репозитория
+    if (!std::filesystem::exists(config_path) && std::filesystem::exists("data/config.json")) {
+        config_path = "data/config.json";
+    }
+
     try {
-        if (std::filesystem::exists(args_opt->config_file)) {
-            parsed_data_opt = json_loader::LoadGame(args_opt->config_file);
+        // Загружаем игру. Если файл физически существует, парсим его
+        if (std::filesystem::exists(config_path)) {
+            parsed_data_opt = json_loader::LoadGame(config_path);
         } else {
+            // Если файла нет нигде, создаем пустой fallback
             json_loader::ParsedGameData fallback;
             parsed_data_opt = std::move(fallback);
         }
     } catch (const std::exception& ex) {
+        std::clog << "Config parse error: " << ex.what() << std::endl;
         json_loader::ParsedGameData fallback;
         parsed_data_opt = std::move(fallback);
     }

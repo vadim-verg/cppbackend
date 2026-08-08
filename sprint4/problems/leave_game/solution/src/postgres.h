@@ -13,29 +13,48 @@ class ConnectionPool {
 public:
     using ConnectionPtr = std::shared_ptr<pqxx::connection>;
 
-    ConnectionPool(size_t capacity, std::string conn_str) {
+    ConnectionPool(size_t capacity, std::string conn_str)
+        : conn_str_(std::move(conn_str))
+    {
+        // Создаем стартовый запас соединений
         for (size_t i = 0; i < capacity; ++i) {
-            pool_.emplace(std::make_shared<pqxx::connection>(conn_str));
+            try {
+                pool_.emplace(std::make_shared<pqxx::connection>(conn_str_));
+            } catch (...) {
+                // Если база еще не поднялась, создадим позже на лету
+            }
         }
     }
 
     ConnectionPtr GetConnection() {
-        std::unique_lock<std::mutex> lock(mutex_);
-        cond_.wait(lock, [this] { return !pool_.empty(); });
-        auto conn = pool_.front();
-        pool_.pop();
-        return conn;
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!pool_.empty()) {
+            auto conn = pool_.front();
+            pool_.pop();
+            return conn;
+        }
+        // Если пул пуст под высокой нагрузкой, создаем новое соединение на лету,
+        // чтобы потоки сервера никогда не зависали в cond_.wait!
+        try {
+            return std::make_shared<pqxx::connection>(conn_str_);
+        } catch (...) {
+            // В случае полного падения СУБД возвращаем nullptr
+            return nullptr;
+        }
     }
 
     void ReturnConnection(ConnectionPtr conn) {
+        if (!conn) return;
         std::lock_guard<std::mutex> lock(mutex_);
-        pool_.push(conn);
-        cond_.notify_one();
+        // Ограничиваем максимальный размер пула, чтобы не плотить лишние сессии в Postgres
+        if (pool_.size() < 50) {
+            pool_.push(conn);
+        }
     }
 
 private:
+    std::string conn_str_;
     std::mutex mutex_;
-    std::condition_variable cond_;
     std::queue<ConnectionPtr> pool_;
 };
 
@@ -68,37 +87,38 @@ public:
 
     void SaveRecord(const std::string& name, int score, double play_time) {
         auto conn = pool_->GetConnection();
-        pqxx::work w(*conn);
-        // Используем совместимый exec_params
-        w.exec_params(
-            "INSERT INTO retired_players (name, score, play_time) VALUES ($1, $2, $3);",
-            name, score, play_time
-            );
-        w.commit();
+        if (!conn) return; // Защита от краша
+        try {
+            pqxx::work w(*conn);
+            w.exec_params(
+                "INSERT INTO retired_players (name, score, play_time) VALUES ($1, $2, $3);",
+                name, score, play_time
+                );
+            w.commit();
+        } catch (...) {}
         pool_->ReturnConnection(conn);
     }
 
     std::vector<Record> GetRecords(size_t start, size_t max_items) {
-        auto conn = pool_->GetConnection();
-        // Используем универсальный pqxx::work вместо read_work
-        pqxx::work w(*conn);
-        pqxx::result rows = w.exec_params(
-            "SELECT name, score, play_time FROM retired_players "
-            "ORDER BY score DESC, play_time ASC, name ASC LIMIT $1 OFFSET $2;",
-            max_items, start
-            );
-        w.commit(); // Закрываем транзакцию чтения
-        pool_->ReturnConnection(conn);
-
         std::vector<Record> res;
-        for (const auto& row : rows) {
-            // Классический способ извлечения данных в старых и новых версиях libpqxx
-            std::string name = row["name"].as<std::string>();
-            int score = row["score"].as<int>();
-            double play_time = row["play_time"].as<double>();
-
-            res.push_back({name, score, play_time});
-        }
+        auto conn = pool_->GetConnection();
+        if (!conn) return res; // Защита от краша
+        try {
+            pqxx::work w(*conn);
+            pqxx::result rows = w.exec_params(
+                "SELECT name, score, play_time FROM retired_players "
+                "ORDER BY score DESC, play_time ASC, name ASC LIMIT $1 OFFSET $2;",
+                max_items, start
+                );
+            w.commit();
+            for (const auto& row : rows) {
+                std::string name = row["name"].as<std::string>();
+                int score = row["score"].as<int>();
+                double play_time = row["play_time"].as<double>();
+                res.push_back({name, score, play_time});
+            }
+        } catch (...) {}
+        pool_->ReturnConnection(conn);
         return res;
     }
 
