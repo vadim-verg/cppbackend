@@ -247,7 +247,17 @@ private:
         http::response<http::string_body> res(status, req.version());
         res.set(http::field::content_type, "application/json");
         res.set(http::field::cache_control, "no-cache");
-        res.body() = body;
+
+        // 1. ЯВНО задаем Content-Length на основе размера сгенерированного JSON-текста.
+        // Это гарантирует, что размер будет указан всегда, даже если тело ответа пустое!
+        res.set(http::field::content_length, std::to_string(body.size()));
+
+        // 2. Тело ответа прикрепляем ТОЛЬКО если это обычный GET запрос.
+        // Если это HEAD запрос — по стандарту HTTP тело должно оставаться пустым.
+        if (req.method() != boost::beast::http::verb::head) {
+            res.body() = body;
+        }
+
         res.prepare_payload();
         res.keep_alive(req.keep_alive());
         return res;

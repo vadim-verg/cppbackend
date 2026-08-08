@@ -124,7 +124,7 @@ public:
                     dog_ptr = std::make_shared<model::Dog>(p_repr.dog.Restore());
 
                     // Обновляем счетчик собак на карте в модели
-                    game.SetDogCount(model::Map::Id{p_repr.map_id}, game.GetDogCount(model::Map::Id{p_repr.map_id}) + 1);
+                  //  game.SetDogCount(model::Map::Id{p_repr.map_id}, game.GetDogCount(model::Map::Id{p_repr.map_id}) + 1);
                 }
 
                 auto player = std::make_shared<app::Player>(p_repr.id, p_repr.name, p_repr.map_id, dog_ptr);

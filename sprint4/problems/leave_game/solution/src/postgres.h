@@ -116,7 +116,7 @@ public:
             pqxx::result rows = w.exec_params(
                 "SELECT name, score, play_time FROM retired_players "
                 "ORDER BY score DESC, play_time ASC, name ASC LIMIT $1 OFFSET $2;",
-                max_items, start
+                static_cast<int>(max_items), static_cast<int>(start)
                 );
             w.commit();
             for (const auto& row : rows) {
