@@ -255,20 +255,19 @@ private:
     template <typename Body, typename Allocator>
     static http::response<http::string_body> MakeBaseResponse(
         const http::request<Body, http::basic_fields<Allocator>>& req,
-        http::status status, std::string_view body) {
+        http::status status,
+        std::string body) {
 
         http::response<http::string_body> res(status, req.version());
         res.set(http::field::content_type, "application/json");
         res.set(http::field::cache_control, "no-cache");
 
-        // 1. ЯВНО задаем Content-Length на основе размера сгенерированного JSON-текста.
-        // Это гарантирует, что размер будет указан всегда, даже если тело ответа пустое!
+        // Вручную прописываем размер тела, чтобы заголовки были валидны даже для пустого массива
         res.set(http::field::content_length, std::to_string(body.size()));
 
-        // 2. Тело ответа прикрепляем ТОЛЬКО если это обычный GET запрос.
-        // Если это HEAD запрос — по стандарту HTTP тело должно оставаться пустым.
+        // Тело ответа прикрепляем только для GET-запросов
         if (req.method() != boost::beast::http::verb::head) {
-            res.body() = body;
+            res.body() = std::move(body); // Безопасное перемещение реальной строки
         }
 
         res.prepare_payload();
@@ -327,16 +326,20 @@ private:
 
     // Вспомогательный метод для текстовых ошибок статики
     template <typename Body, typename Allocator>
-    http::response<http::string_body> MakeTextErrorResponse(
+    static http::response<http::string_body> MakeTextErrorResponse(
         const http::request<Body, http::basic_fields<Allocator>>& req,
         http::status status,
-        std::string_view message)
-    {
+        std::string text_msg) {
+
         http::response<http::string_body> res(status, req.version());
         res.set(http::field::content_type, "text/plain");
-        res.body() = message;
+        res.set(http::field::content_length, std::to_string(text_msg.size()));
+
+        if (req.method() != boost::beast::http::verb::head) {
+            res.body() = std::move(text_msg);
+        }
+
         res.prepare_payload();
-        res.keep_alive(req.keep_alive());
         return res;
     }
 
