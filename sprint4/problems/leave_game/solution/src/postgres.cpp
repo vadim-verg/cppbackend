@@ -1,46 +1,79 @@
 #include "postgres.h"
+#include <iostream>
 
 namespace database {
 
+PostgresDatabase::PostgresDatabase(const std::string& db_url)
+    : connection_string_(db_url)
+    , pool_(10, db_url) { // Открываем пул на 10 параллельных соединений
+    Init();
+}
+
+void PostgresDatabase::Init() {
+    try {
+        auto conn = pool_.GetConnection();
+        pqxx::work tr(*conn);
+
+        tr.exec(R"(
+            CREATE TABLE IF NOT EXISTS retired_players (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(100) NOT NULL,
+                score INT NOT NULL,
+                play_time DOUBLE PRECISION NOT NULL
+            );
+        )");
+
+        tr.exec(R"(
+            CREATE INDEX IF NOT EXISTS idx_retired_players_sort
+            ON retired_players (score DESC, play_time ASC, name ASC);
+        )");
+
+        tr.commit();
+        pool_.ReturnConnection(conn);
+    } catch (const std::exception& e) {
+        std::cerr << "Database initialization failed: " << e.what() << std::endl;
+        throw;
+    }
+}
+
 void PostgresDatabase::SaveRecord(const model::RetiredDogInfo& record) {
-    pqxx::connection conn(connection_string_);
-    pqxx::work tr(conn);
-
-    tr.exec_params(
-        "INSERT INTO retired_players (name, score, play_time) VALUES ($1, $2, $3);",
-        record.name, record.score, record.play_time
+    auto conn = pool_.GetConnection();
+    try {
+        pqxx::work tr(*conn);
+        tr.exec_params(
+            "INSERT INTO retired_players (name, score, play_time) VALUES ($1, $2, $3);",
+            record.name, record.score, record.play_time
         );
-
-    tr.commit();
+        tr.commit();
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to save record: " << e.what() << std::endl;
+    }
+    pool_.ReturnConnection(conn);
 }
 
 std::vector<model::RetiredDogInfo> PostgresDatabase::GetRecords(size_t start, size_t max_items) {
-    pqxx::connection conn(connection_string_);
-
-    // ИСПРАВЛЕНО: Используем pqxx::work вместо устаревшего read_work
-    pqxx::work tr(conn);
-
-    auto rows = tr.exec_params(
-        "SELECT name, score, play_time FROM retired_players ORDER BY score DESC, play_time ASC, name ASC LIMIT $1 OFFSET $2;",
-        max_items, start
+    auto conn = pool_.GetConnection();
+    std::vector<model::RetiredDogInfo> result;
+    try {
+        pqxx::work tr(*conn);
+        auto rows = tr.exec_params(
+            "SELECT name, score, play_time FROM retired_players ORDER BY score DESC, play_time ASC, name ASC LIMIT $1 OFFSET $2;",
+            max_items, start
         );
 
-    std::vector<model::RetiredDogInfo> result;
-    result.reserve(rows.size());
-
-    for (const auto& row : rows) {
-        // ИСПРАВЛЕНО: Уходим от назначенного C++20 инициализатора к классическому созданию структуры
-        model::RetiredDogInfo info;
-        info.name = row[0].as<std::string>();
-        info.score = row[1].as<int>();
-        info.play_time = row[2].as<double>();
-
-        result.push_back(std::move(info));
+        result.reserve(rows.size());
+        for (const auto& row : rows) {
+            model::RetiredDogInfo info;
+            info.name = row.as<std::string>();
+            info.score = row.as<int>();
+            info.play_time = row.as<double>();
+            result.push_back(std::move(info));
+        }
+        tr.commit();
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to get records: " << e.what() << std::endl;
     }
-
-    // Транзакции на чтение тоже коммитим, чтобы закрыть сессию в БД
-    tr.commit();
-
+    pool_.ReturnConnection(conn);
     return result;
 }
 

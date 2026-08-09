@@ -111,31 +111,56 @@ public:
                     return;
                 }
 
+                // Значения по умолчанию согласно ТЗ диплома
                 int start_idx = 0;
-                int max_items = 100; // Значение по умолчанию по ТЗ
+                int max_items = 100;
 
+                // Находим начало параметров (после знака '?')
                 if (size_t query_pos = full_target.find('?'); query_pos != std::string_view::npos) {
                     std::string_view query = full_target.substr(query_pos + 1);
 
-                    // Лямбда для безопасного извлечения числовых параметров из query-строки
-                    auto parse_param = [](std::string_view q, std::string_view key) -> std::optional<int> {
+                    // Потокобезопасная и отказоустойчивая лямбда-функция для парсинга параметров
+                    auto get_param_value = [](std::string_view q, std::string_view key) -> std::optional<int> {
                         size_t k_pos = q.find(key);
-                        if (k_pos == std::string_view::npos) return std::nullopt;
+                        if (k_pos == std::string_view::npos) {
+                            return std::nullopt;
+                        }
+
+                        // Вычисляем, где начинается само значение (после знака '=')
                         size_t val_pos = k_pos + key.size();
+                        // Ищем конец параметра (до следующего '&' или до конца строки)
                         size_t amp_pos = q.find('&', val_pos);
-                        std::string val_str = std::string(q.substr(val_pos, amp_pos == std::string_view::npos ? std::string_view::npos : amp_pos - val_pos));
-                        try { return std::stoi(val_str); } catch (...) { return std::nullopt; }
+
+                        std::string_view val_sv = (amp_pos == std::string_view::npos)
+                                                      ? q.substr(val_pos)
+                                                      : q.substr(val_pos, amp_pos - val_pos);
+
+                        if (val_sv.empty()) {
+                            return std::nullopt;
+                        }
+
+                        try {
+                            // Преобразуем в строку и безопасно конвертируем в int
+                            return std::stoi(std::string(val_sv));
+                        } catch (...) {
+                            // Если в параметре пришел мусор (например, ?start=abc),
+                            // игнорируем его и не даем серверу упасть
+                            return std::nullopt;
+                        }
                     };
 
-                    if (auto s_opt = parse_param(query, "start=")) {
+                    // Ищем параметры с учетом знака '='
+                    if (auto s_opt = get_param_value(query, "start=")) {
                         start_idx = std::max(0, *s_opt);
                     }
-                    if (auto m_opt = parse_param(query, "maxItems=")) {
-                        // Если переданное значение maxItems > 100, возвращаем 400 Bad Request по ТЗ
+
+                    if (auto m_opt = get_param_value(query, "maxItems=")) {
+                        // Строгое требование ТЗ: если maxItems > 100, возвращаем ошибку 400 Bad Request
                         if (*m_opt > 100) {
                             boost::json::object error_obj;
                             error_obj["code"] = "invalidArgument";
                             error_obj["message"] = "maxItems value cannot exceed 100";
+
                             send(MakeBaseResponse(req, http::status::bad_request, boost::json::serialize(error_obj)));
                             return;
                         }
@@ -143,7 +168,7 @@ public:
                     }
                 }
 
-                // Получаем записи из PostgreSQL с пагинацией (БД сама отсортирует по ТЗ)
+                // Запрашиваем рекорды из PostgreSQL (благодаря пулу коннектов крэша не будет)
                 auto records = db_->GetRecords(start_idx, max_items);
 
                 boost::json::array json_records;
@@ -155,10 +180,11 @@ public:
                     json_records.push_back(std::move(obj));
                 }
 
-                // Отправляем успешный ответ (только заголовки, если метод HEAD, или с телом, если GET)
+                // Формируем корректный ответ для GET и HEAD методов
                 if (req.method() == http::verb::get) {
                     send(MakeBaseResponse(req, http::status::ok, boost::json::serialize(json_records)));
                 } else {
+                    // Для метода HEAD отправляем только заголовки с точным Content-Length
                     auto res = MakeBaseResponse(req, http::status::ok, "");
                     res.set(http::field::content_length, std::to_string(boost::json::serialize(json_records).size()));
                     send(std::move(res));
