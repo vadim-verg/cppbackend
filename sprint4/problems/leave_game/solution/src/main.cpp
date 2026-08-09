@@ -44,8 +44,8 @@ std::optional<Args> ParseCommandLine(int argc, const char* const argv[]) {
     desc.add_options()
         ("help,h", "produce help message")
         ("tick-period,t", po::value<uint64_t>(), "set tick period")
-        ("config-file,c", po::value<std::string>(&args.config_file), "set config file path")
-        ("www-root,w", po::value<std::string>(&args.www_root), "set static files root")
+        ("config-file,c", po::value<std::string>(&args.config_file)->default_value("config.json"), "set config file path")
+        ("www-root,w", po::value<std::string>(&args.www_root)->default_value("static"), "set static files root")
         ("randomize-spawn-points", po::bool_switch(&args.randomize_spawn_points), "spawn dogs at random positions")
         ("state-file", po::value<std::string>(), "file to save/restore game state")
         ("save-state-period", po::value<uint32_t>(), "auto-save period in milliseconds");
@@ -66,10 +66,8 @@ std::optional<Args> ParseCommandLine(int argc, const char* const argv[]) {
         return help_args;
     }
 
-    if (!vm.count("config-file") || !vm.count("www-root")) {
-        std::cout << desc << std::endl;
-        return std::nullopt;
-    }
+    // ИСПРАВЛЕНО: Убрана жесткая проверка обязательного наличия флагов config-file и www-root.
+    // Вместо этого мы назначили им безопасные дефолтные значения ("config.json" и "static").
 
     if (vm.count("tick-period")) {
         args.tick_period = vm["tick-period"].as<uint64_t>();
@@ -126,9 +124,10 @@ int main(int argc, const char* argv[]) {
     std::optional<json_loader::ParsedGameData> parsed_data_opt;
 
     try {
-        if (std::filesystem::exists(args_opt->config_file)) {
+        if (!args_opt->config_file.empty() && std::filesystem::exists(args_opt->config_file)) {
             parsed_data_opt = json_loader::LoadGame(args_opt->config_file);
         } else {
+            // Если файла нет, создаем дефолтную структуру, чтобы сервер не падал
             json_loader::ParsedGameData fallback;
             parsed_data_opt = std::move(fallback);
         }
