@@ -18,6 +18,7 @@
 #include "ticker.h"
 #include "state_manager.h"
 #include "players.h"
+//строка
 
 using namespace std::literals;
 
