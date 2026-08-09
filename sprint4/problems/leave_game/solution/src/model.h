@@ -64,6 +64,12 @@ struct BagItem {
     unsigned type;
 };
 
+struct RetiredDogInfo {
+    std::string name;
+    int score = 0;
+    double play_time = 0.0;
+};
+
 class Road {
     struct HorizontalTag {
         explicit HorizontalTag() = default;
@@ -331,6 +337,14 @@ public:
         next_loot_id_[map_id] = id;
     }
 
+    void SetDogRetirementTime(double seconds) noexcept {
+        dog_retirement_time_ = seconds;
+    }
+
+    double GetDogRetirementTime() const noexcept {
+        return dog_retirement_time_;
+    }
+
 private:
     using MapIdHasher = util::TaggedHasher<Map::Id>;
     using MapIdToIndex = std::unordered_map<Map::Id, size_t, MapIdHasher>;
@@ -344,6 +358,8 @@ private:
     double loot_probability_ = 0.5;
 
     DogCountCallback dog_count_cb_;
+
+    double dog_retirement_time_ = 60.0;
 
     // Генераторы лута для каждой карты
     mutable std::unordered_map<Map::Id, loot_gen::LootGenerator, MapIdHasher> map_generators_;
@@ -403,20 +419,18 @@ public:
     int GetScore() const noexcept { return score_; }
     void AddScore(int points) noexcept { score_ += points; }
 
-    void UpdateTimeCounters(double delta_time_seconds) {
-        play_time_ += delta_time_seconds;
+    void UpdateTime(double delta_seconds) {
+        play_time_ += delta_seconds;
         if (speed_.ux == 0.0 && speed_.uy == 0.0) {
-            idle_time_ += delta_time_seconds;
+            idle_time_ += delta_seconds;
         } else {
             idle_time_ = 0.0;
         }
     }
-
     double GetPlayTime() const noexcept { return play_time_; }
     double GetIdleTime() const noexcept { return idle_time_; }
-
-    // Методы для принудительного сброса/установки (пригодятся для ручного сброса при изменении скорости)
-    void ResetIdleTime() noexcept { idle_time_ = 0.0; }
+    void SetPlayTime(double t) { play_time_ = t; }
+    void SetIdleTime(double t) { idle_time_ = t; }
 
 private:
     Id id_;

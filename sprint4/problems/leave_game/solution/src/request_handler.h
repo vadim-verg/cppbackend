@@ -10,6 +10,7 @@
 #include "api_handler.h"
 #include "players.h"
 #include "loot_provider.h"
+#include "postgres.h"
 
 namespace http_handler {
 namespace beast = boost::beast;
@@ -76,13 +77,13 @@ public:
                             std::filesystem::path static_path,
                             app::Application& app,
                             const app::LootInfoProvider& loot_info,
-                            std::shared_ptr<StateManager> state_manager)
+                            std::shared_ptr<StateManager> state_manager,
+                            std::shared_ptr<database::PostgresDatabase> db)
         : game_{game}
         , static_path_{std::move(static_path)}
-        , app_{app}
         , api_handler_{app, state_manager}
         , loot_info_{loot_info}
-    {}
+        , db_{std::move(db)} {}
 
     RequestHandler(const RequestHandler&) = delete;
     RequestHandler& operator=(const RequestHandler&) = delete;
@@ -90,82 +91,10 @@ public:
     template <typename Body, typename Allocator, typename Send>
     void operator()(http::request<Body, http::basic_fields<Allocator>>&& req, Send&& send) {
 
-        std::string_view target{req.target().data(), req.target().size()};
+        // Сохраняем полную строку таргета до обрезания для парсинга query-параметров рекордов
+        std::string_view full_target{req.target().data(), req.target().size()};
+        std::string_view target = full_target;
 
-        // Сначала проверяем эндпоинт таблицы рекордов, так как параметры query string (?start=...)
-        // не должны отсекаться до парсинга параметров пагинации.
-        if (target.starts_with("/api/v1/game/records")) {
-            if (req.method() != http::verb::get && req.method() != http::verb::head) {
-                send(MakeMethodNotAllowedResponse(req));
-                return;
-            }
-
-            size_t start = 0;
-            size_t max_items = 100; // Значение по умолчанию согласно ТЗ
-
-            size_t query_pos = target.find('?');
-            if (query_pos != std::string_view::npos) {
-                std::string_view query = target.substr(query_pos + 1);
-
-                // Лямбда-функция для надежного поиска и извлечения параметров внутри Query String
-                auto parse_param = [](std::string_view query_str, std::string_view key) -> std::optional<size_t> {
-                    size_t pos = query_str.find(key);
-                    if (pos == std::string_view::npos) {
-                        return std::nullopt;
-                    }
-                    pos += key.size();
-                    size_t end_pos = query_str.find('&', pos);
-
-                    std::string_view val_sv;
-                    if (end_pos == std::string_view::npos) {
-                        val_sv = query_str.substr(pos);
-                    } else {
-                        val_sv = query_str.substr(pos, end_pos - pos);
-                    }
-
-                    try {
-                        return std::stoull(std::string(val_sv));
-                    } catch (...) {
-                        return std::nullopt;
-                    }
-                };
-
-                if (auto s_opt = parse_param(query, "start=")) {
-                    start = *s_opt;
-                }
-                if (auto m_opt = parse_param(query, "maxItems=")) {
-                    max_items = *m_opt;
-                }
-            }
-
-            // Если maxItems превышает 100, должна вернуться ошибка с кодом 400 Bad Request
-            if (max_items > 100) {
-                boost::json::object error_obj;
-                error_obj["code"] = "badRequest";
-                error_obj["message"] = "maxItems cannot exceed 100";
-                send(MakeBaseResponse(req, http::status::bad_request, boost::json::serialize(error_obj)));
-                return;
-            }
-
-            // Формируем JSON-массив из записей в базе данных PostgreSQL
-            boost::json::array records_json;
-            if (app_.GetDBRepository()) { // app_ — ссылка/указатель на экземпляр Application в RequestHandler
-                auto records = app_.GetDBRepository()->GetRecords(start, max_items);
-                for (const auto& rec : records) {
-                    boost::json::object obj;
-                    obj["name"] = rec.name;
-                    obj["score"] = rec.score;
-                    obj["playTime"] = rec.play_time;
-                    records_json.push_back(std::move(obj));
-                }
-            }
-
-            // Отправляем успешный ответ с заголовками Content-Type: application/json и Cache-Control: no-cache
-            send(MakeBaseResponse(req, http::status::ok, boost::json::serialize(records_json)));
-            return;
-        }
-
-        // Для всех остальных эндпоинтов отсекаем Query String параметры (например, для статики или карт)
         if (auto query_pos = target.find('?'); query_pos != std::string_view::npos) {
             target = target.substr(0, query_pos);
         }
@@ -173,8 +102,69 @@ public:
         std::string decoded_target = UrlDecode(target);
         std::string_view target_sv = decoded_target;
 
-        // Маршрутизация игрового API
         if (target_sv.starts_with("/api/")) {
+
+            // Добавляем обработку эндпоинта /api/v1/game/records
+            if (target_sv == "/api/v1/game/records") {
+                if (req.method() != http::verb::get && req.method() != http::verb::head) {
+                    send(MakeMethodNotAllowedResponse(req));
+                    return;
+                }
+
+                int start_idx = 0;
+                int max_items = 100; // Значение по умолчанию по ТЗ
+
+                if (size_t query_pos = full_target.find('?'); query_pos != std::string_view::npos) {
+                    std::string_view query = full_target.substr(query_pos + 1);
+
+                    // Лямбда для безопасного извлечения числовых параметров из query-строки
+                    auto parse_param = [](std::string_view q, std::string_view key) -> std::optional<int> {
+                        size_t k_pos = q.find(key);
+                        if (k_pos == std::string_view::npos) return std::nullopt;
+                        size_t val_pos = k_pos + key.size();
+                        size_t amp_pos = q.find('&', val_pos);
+                        std::string val_str = std::string(q.substr(val_pos, amp_pos == std::string_view::npos ? std::string_view::npos : amp_pos - val_pos));
+                        try { return std::stoi(val_str); } catch (...) { return std::nullopt; }
+                    };
+
+                    if (auto s_opt = parse_param(query, "start=")) {
+                        start_idx = std::max(0, *s_opt);
+                    }
+                    if (auto m_opt = parse_param(query, "maxItems=")) {
+                        // Если переданное значение maxItems > 100, возвращаем 400 Bad Request по ТЗ
+                        if (*m_opt > 100) {
+                            boost::json::object error_obj;
+                            error_obj["code"] = "invalidArgument";
+                            error_obj["message"] = "maxItems value cannot exceed 100";
+                            send(MakeBaseResponse(req, http::status::bad_request, boost::json::serialize(error_obj)));
+                            return;
+                        }
+                        max_items = std::max(0, *m_opt);
+                    }
+                }
+
+                // Получаем записи из PostgreSQL с пагинацией (БД сама отсортирует по ТЗ)
+                auto records = db_->GetRecords(start_idx, max_items);
+
+                boost::json::array json_records;
+                for (const auto& record : records) {
+                    boost::json::object obj;
+                    obj["name"] = record.name;
+                    obj["score"] = record.score;
+                    obj["playTime"] = record.play_time;
+                    json_records.push_back(std::move(obj));
+                }
+
+                // Отправляем успешный ответ (только заголовки, если метод HEAD, или с телом, если GET)
+                if (req.method() == http::verb::get) {
+                    send(MakeBaseResponse(req, http::status::ok, boost::json::serialize(json_records)));
+                } else {
+                    auto res = MakeBaseResponse(req, http::status::ok, "");
+                    res.set(http::field::content_length, std::to_string(boost::json::serialize(json_records).size()));
+                    send(std::move(res));
+                }
+                return;
+            }
 
             if (target_sv == Endpoints::Maps) {
                 if (req.method() != http::verb::get && req.method() != http::verb::head) {
@@ -194,21 +184,8 @@ public:
                 return;
             }
 
-            // Фикс для всего игрового API (/join, /players, /state, /action, /tick)
             if (target_sv.starts_with("/api/v1/game/")) {
-                // Получаем сырой ответ от ApiHandler
-                auto response = api_handler_.HandleRequest(req);
-
-                // Гарантируем наличие заголовка Content-Length строго по спецификации HTTP для ЯПрактикума!
-                response.set(http::field::content_length, std::to_string(response.body().size()));
-
-                // Если пришел HEAD-запрос к игровому API — очищаем тело ответа
-                if (req.method() == http::verb::head) {
-                    response.body() = "";
-                    response.prepare_payload();
-                }
-
-                send(std::move(response));
+                send(api_handler_.HandleRequest(req));
                 return;
             }
 
@@ -216,7 +193,6 @@ public:
             return;
         }
 
-        // Маршрутизация статических файлов
         if (req.method() != http::verb::get && req.method() != http::verb::head) {
             send(MakeMethodNotAllowedResponse(req));
             return;
@@ -248,28 +224,19 @@ public:
 private:
     model::Game& game_;
     std::filesystem::path static_path_;
-    app::Application& app_;
     ApiHandler api_handler_;
     const app::LootInfoProvider& loot_info_;
+    std::shared_ptr<database::PostgresDatabase> db_;
 
     template <typename Body, typename Allocator>
     static http::response<http::string_body> MakeBaseResponse(
         const http::request<Body, http::basic_fields<Allocator>>& req,
-        http::status status,
-        std::string body) {
+        http::status status, std::string_view body) {
 
         http::response<http::string_body> res(status, req.version());
         res.set(http::field::content_type, "application/json");
         res.set(http::field::cache_control, "no-cache");
-
-        // Вручную прописываем размер тела, чтобы заголовки были валидны даже для пустого массива
-        res.set(http::field::content_length, std::to_string(body.size()));
-
-        // Тело ответа прикрепляем только для GET-запросов
-        if (req.method() != boost::beast::http::verb::head) {
-            res.body() = std::move(body); // Безопасное перемещение реальной строки
-        }
-
+        res.body() = body;
         res.prepare_payload();
         res.keep_alive(req.keep_alive());
         return res;
@@ -326,20 +293,16 @@ private:
 
     // Вспомогательный метод для текстовых ошибок статики
     template <typename Body, typename Allocator>
-    static http::response<http::string_body> MakeTextErrorResponse(
+    http::response<http::string_body> MakeTextErrorResponse(
         const http::request<Body, http::basic_fields<Allocator>>& req,
         http::status status,
-        std::string text_msg) {
-
+        std::string_view message)
+    {
         http::response<http::string_body> res(status, req.version());
         res.set(http::field::content_type, "text/plain");
-        res.set(http::field::content_length, std::to_string(text_msg.size()));
-
-        if (req.method() != boost::beast::http::verb::head) {
-            res.body() = std::move(text_msg);
-        }
-
+        res.body() = message;
         res.prepare_payload();
+        res.keep_alive(req.keep_alive());
         return res;
     }
 

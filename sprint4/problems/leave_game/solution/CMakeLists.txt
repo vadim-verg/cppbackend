@@ -64,7 +64,8 @@ add_executable(game_server
     src/loot_generator.h
     src/loot_generator.cpp
     src/loot_provider.h
-    src/postgres.h      
+    src/postgres.h
+    src/postgres.cpp      
 )
 
 # Линковка через таргеты Конана и системные библиотеки

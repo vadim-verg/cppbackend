@@ -10,7 +10,6 @@ namespace json_loader {
 struct ParsedGameData {
     model::Game game;
     app::LootInfoProvider loot_info;
-    double dog_retirement_time = 60.0; // По умолчанию 1 минута
 };
 
 ParsedGameData LoadGame(const std::filesystem::path& json_path);

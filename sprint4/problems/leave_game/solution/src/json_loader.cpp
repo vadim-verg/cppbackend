@@ -181,13 +181,7 @@ ParsedGameData LoadGame(const std::filesystem::path& json_path) {
         }
     }
 
-    double retirement_time = 60.0;
-    if (root_object.contains("dogRetirementTime")) {
-        retirement_time = GetDoubleValue(root_object.at("dogRetirementTime"));
-    }
-    return {std::move(game), std::move(loot_info), retirement_time};
-
-//    return {std::move(game), std::move(loot_info)};
+    return {std::move(game), std::move(loot_info)};
 }
 
 std::string_view DirectionToString(model::Direction dir) {

@@ -35,96 +35,64 @@ private:
 
 class PlayerTokens {
 public:
+    // Генерация псевдослучайного токена (32 hex-символа)
     std::string GenerateToken();
 
-    std::string AddPlayer(std::shared_ptr<Player> player) {
-        std::lock_guard<std::recursive_mutex> lock(mutex_);
-        std::string token = GenerateToken();
-        token_to_player_[token] = std::move(player);
-        return token;
-    }
+    // Зарегистрировать игрока и выдать ему токен
+    std::string AddPlayer(std::shared_ptr<Player> player);
 
-    std::shared_ptr<Player> FindPlayerByToken(const std::string& token) const {
-        std::lock_guard<std::recursive_mutex> lock(mutex_);
-        if (auto it = token_to_player_.find(token); it != token_to_player_.end()) {
-            return it->second;
-        }
-        return nullptr;
-    }
+    // Найти игрока по токену (возвращает nullptr, если токен не найден)
+    std::shared_ptr<Player> FindPlayerByToken(const std::string& token) const;
 
-    // Для сохранения состояния (возвращает константную ссылку под lock)
     const std::unordered_map<std::string, std::shared_ptr<Player>>& GetTokenMap() const {
         return token_to_player_;
     }
-
-    // Для безопасного итерирования в параллельных потоках
-    std::unordered_map<std::string, std::shared_ptr<Player>> GetTokenMapCopy() const {
-        std::lock_guard<std::recursive_mutex> lock(mutex_);
-        return token_to_player_;
+    // Метод для ручного добавления токена при восстановлении состояния:
+    void RestoreToken(const std::string& token, std::shared_ptr<Player> player) {
+        token_to_player_[token] = std::move(player);
     }
 
     void RemoveToken(const std::string& token) {
-        std::lock_guard<std::recursive_mutex> lock(mutex_);
         token_to_player_.erase(token);
-    }
-
-    void RestoreToken(const std::string& token, std::shared_ptr<Player> player) {
-        std::lock_guard<std::recursive_mutex> lock(mutex_);
-        token_to_player_[token] = std::move(player);
     }
 
 private:
     std::random_device rd_;
     std::mt19937_64 generator_{rd_()};
     std::unordered_map<std::string, std::shared_ptr<Player>> token_to_player_;
-    mutable std::recursive_mutex mutex_;
 };
 
 class PlayerManager {
 public:
+    // Создать нового игрока на карте с присваиванием ID
     std::shared_ptr<Player> CreatePlayer(const std::string& name, const std::string& map_id) {
-        std::lock_guard<std::recursive_mutex> lock(mutex_);
         uint32_t id = next_id_++;
         auto player = std::make_shared<Player>(id, name, map_id);
         players_[id] = player;
         return player;
     }
 
-    // ВОЗВРАЩАЕМ СТАРЫЙ МЕТОД ДЛЯ СОВМЕСТИМОСТИ С СЕРИАЛИЗАЦИЕЙ И MAIN
     const std::unordered_map<uint32_t, std::shared_ptr<Player>>& GetPlayers() const {
         return players_;
     }
 
-    // Метод для безопасных циклов
-    std::unordered_map<uint32_t, std::shared_ptr<Player>> GetPlayersCopy() const {
-        std::lock_guard<std::recursive_mutex> lock(mutex_);
-        return players_;
-    }
-
-    void RemovePlayer(uint32_t id) {
-        std::lock_guard<std::recursive_mutex> lock(mutex_);
-        players_.erase(id);
-    }
-
     void RestorePlayer(std::shared_ptr<Player> player) {
-        std::lock_guard<std::recursive_mutex> lock(mutex_);
         players_[player->GetId()] = player;
     }
 
     void SetNextId(uint32_t id) {
-        std::lock_guard<std::recursive_mutex> lock(mutex_);
         next_id_ = id;
     }
 
-    uint32_t GetNextIdInternal() const {
-        std::lock_guard<std::recursive_mutex> lock(mutex_);
-        return next_id_;
+    uint32_t GetNextIdInternal() const { return next_id_; }
+
+    void RemovePlayer(uint32_t id) {
+        players_.erase(id);
     }
 
 private:
     uint32_t next_id_ = 0;
     std::unordered_map<uint32_t, std::shared_ptr<Player>> players_;
-    mutable std::recursive_mutex mutex_;
 };
 
 // Результат входа в игру
@@ -135,12 +103,10 @@ struct JoinGameResult {
 
 class Application {
 public:
-    Application(model::Game& game, std::shared_ptr<postgres::RecordsRepository> db_repo, double retirement_time)
+    explicit Application(model::Game& game, std::shared_ptr<database::PostgresDatabase> db)
         : game_(game)
-        , db_repo_(db_repo)
-        , dog_retirement_time_(retirement_time) {}
-
-    std::shared_ptr<postgres::RecordsRepository> GetDBRepository() const { return db_repo_; }
+        , db_(std::move(db))
+    {}
 
     // Модуляция игрового времени
     void Tick(double delta_time_seconds);
@@ -196,10 +162,8 @@ public:
     // Также добавьте простой метод для инициализации параметров времени:
     void SetupSaveParameters(std::optional<std::string> state_file, std::optional<uint32_t> period_ms) {
         state_file_ = std::move(state_file);
-        if (period_ms.has_value()) {
-            save_state_period_ = std::chrono::milliseconds(period_ms.value());
-        } else {
-            save_state_period_ = std::nullopt;
+        if (period_ms) {
+            save_state_period_ = std::chrono::milliseconds(*period_ms);
         }
     }
 
@@ -216,6 +180,7 @@ private:
     void UpdateDogPosition(model::Dog& dog, const model::Map& map, double delta_time_seconds);
 
     model::Game& game_;
+    std::shared_ptr<database::PostgresDatabase> db_;
     PlayerManager player_manager_;
     PlayerTokens player_tokens_;
 
@@ -226,9 +191,6 @@ private:
     std::optional<std::string> state_file_;
     std::optional<std::chrono::milliseconds> save_state_period_;
     std::chrono::milliseconds time_since_last_save_{0};
-
-    std::shared_ptr<postgres::RecordsRepository> db_repo_;
-    double dog_retirement_time_ = 60.0;
 
 };
 

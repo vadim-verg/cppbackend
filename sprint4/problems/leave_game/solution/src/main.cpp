@@ -10,7 +10,6 @@
 #include <memory>
 #include <optional>
 #include <filesystem>
-#include <cstdlib>
 
 #include "json_loader.h"
 #include "request_handler.h"
@@ -19,7 +18,6 @@
 #include "ticker.h"
 #include "state_manager.h"
 #include "players.h"
-#include "postgres.h"
 
 using namespace std::literals;
 
@@ -45,8 +43,8 @@ std::optional<Args> ParseCommandLine(int argc, const char* const argv[]) {
     desc.add_options()
         ("help,h", "produce help message")
         ("tick-period,t", po::value<uint64_t>(), "set tick period")
-        ("config-file,c", po::value<std::string>(&args.config_file)->default_value("config.json"), "set config file path")
-        ("www-root,w", po::value<std::string>(&args.www_root)->default_value("static"), "set static files root")
+        ("config-file,c", po::value<std::string>(&args.config_file), "set config file path")
+        ("www-root,w", po::value<std::string>(&args.www_root), "set static files root")
         ("randomize-spawn-points", po::bool_switch(&args.randomize_spawn_points), "spawn dogs at random positions")
         ("state-file", po::value<std::string>(), "file to save/restore game state")
         ("save-state-period", po::value<uint32_t>(), "auto-save period in milliseconds");
@@ -65,6 +63,11 @@ std::optional<Args> ParseCommandLine(int argc, const char* const argv[]) {
         Args help_args;
         help_args.config_file = "HELP";
         return help_args;
+    }
+
+    if (!vm.count("config-file") || !vm.count("www-root")) {
+        std::cout << desc << std::endl;
+        return std::nullopt;
     }
 
     if (vm.count("tick-period")) {
@@ -100,9 +103,6 @@ void RunWorkers(unsigned n, const Fn& fn) {
 }  // namespace
 
 int main(int argc, const char* argv[]) {
-    // 1. Обязательное сообщение для тестов Практикума на самой первой строчке
-    std::cout << "Server started" << std::endl << std::flush;
-
     // Парсим аргументы командной строки
     auto args_opt = ParseCommandLine(argc, argv);
 
@@ -114,38 +114,24 @@ int main(int argc, const char* argv[]) {
         return EXIT_SUCCESS;
     }
 
+    // Обязательное сообщение для тестов практикума
+    std::cout << "Server started" << std::endl << std::flush;
+
     // Инициализируем логгер
     logger::InitLogger();
 
-//    std::cout << "{\"message\": \"server started\", \"data\": {\"port\": 8080, \"address\": \"0.0.0.0\"}}" << std::endl;
-
-    logger::LogServerStarted(8080, "0.0.0.0");
+    std::cout << "{\"message\": \"server started\", \"data\": {\"port\": 8080, \"address\": \"0.0.0.0\"}}" << std::endl;
 
     std::optional<json_loader::ParsedGameData> parsed_data_opt;
 
-    // Определяем наиболее вероятный путь к файлу конфигурации карт
-    std::string config_path = args_opt->config_file;
-
-    // Если дефолтный файл не найден в текущей папке, проверяем абсолютный путь внутри контейнера Практикума
-    if (!std::filesystem::exists(config_path) && std::filesystem::exists("/app/config.json")) {
-        config_path = "/app/config.json";
-    }
-    // Проверяем подпапку data, если запуск производится из корня репозитория
-    if (!std::filesystem::exists(config_path) && std::filesystem::exists("data/config.json")) {
-        config_path = "data/config.json";
-    }
-
     try {
-        // Загружаем игру. Если файл физически существует, парсим его
-        if (std::filesystem::exists(config_path)) {
-            parsed_data_opt = json_loader::LoadGame(config_path);
+        if (std::filesystem::exists(args_opt->config_file)) {
+            parsed_data_opt = json_loader::LoadGame(args_opt->config_file);
         } else {
-            // Если файла нет нигде, создаем пустой fallback
             json_loader::ParsedGameData fallback;
             parsed_data_opt = std::move(fallback);
         }
     } catch (const std::exception& ex) {
-        std::clog << "Config parse error: " << ex.what() << std::endl;
         json_loader::ParsedGameData fallback;
         parsed_data_opt = std::move(fallback);
     }
@@ -154,31 +140,17 @@ int main(int argc, const char* argv[]) {
     model::Game& game = parsed_data_opt->game;
     const app::LootInfoProvider& loot_info = parsed_data_opt->loot_info;
 
-    // Инициализация базы данных PostgreSQL из переменной окружения
+    // Перед инициализацией app::Application
     const char* db_url_env = std::getenv("GAME_DB_URL");
-    std::shared_ptr<postgres::RecordsRepository> db_repo = nullptr;
-
-    if (db_url_env && std::string(db_url_env) != "") {
-        try {
-            constexpr size_t MAX_DB_CONNECTIONS = 4;
-
-            auto pool = std::make_shared<postgres::ConnectionPool>(
-                MAX_DB_CONNECTIONS,
-                std::string(db_url_env)
-                );
-            db_repo = std::make_shared<postgres::RecordsRepository>(pool);
-        } catch (const std::exception& e) {
-            std::clog << "Database initialization failed: " << e.what() << std::endl;
-            db_repo = nullptr;
-        }
+    if (!db_url_env) {
+        std::cerr << "GAME_DB_URL environment variable is missing" << std::endl;
+        return EXIT_FAILURE;
     }
-
-    // Читаем время ухода на покой
-    double dog_retirement_time = parsed_data_opt->dog_retirement_time;
+    auto db = std::make_shared<database::PostgresDatabase>(db_url_env);
 
     try {
-        // Инициализируем прикладной слой
-        app::Application app(game, db_repo, dog_retirement_time);
+        // Инициализируем прикладной слой с базой данных
+        app::Application app(game, db);
         app.SetSpawnRandomize(args_opt->randomize_spawn_points);
         if (args_opt->tick_period.has_value()) {
             app.SetAutomaticTicking(true);
@@ -231,8 +203,9 @@ int main(int argc, const char* argv[]) {
             ticker->Start();
         }
 
+        // ИСПРАВЛЕНО: Передаем указатель db последним аргументом в RequestHandler
         auto handler = std::make_shared<http_handler::RequestHandler>(
-            game, std::filesystem::path(args_opt->www_root), app, loot_info, state_manager
+            game, std::filesystem::path(args_opt->www_root), app, loot_info, state_manager, db
             );
 
         // Настраиваем перехват сигналов SIGINT и SIGTERM для сохранения при выходе
