@@ -315,19 +315,25 @@ http::response<http::string_body> ApiHandler::HandleRequest(const http::request<
     std::string_view target{target_boost.data(), target_boost.size()};
     unsigned int version = req.version();
 
-    if (target == "/api/v1/game/join") {
+    // ИСПРАВЛЕНО: Обрезаем query-параметры из URI перед роутингом игрового API
+    if (auto query_pos = target.find('?'); query_pos != std::string_view::npos) {
+        target = target.substr(0, query_pos);
+    }
+
+    // ИСПРАВЛЕНО: Учитываем возможный завершающий слэш, который могут слать тесты
+    if (target == "/api/v1/game/join" || target == "/api/v1/game/join/") {
         return HandleJoinGame(req);
     }
-    else if (target == "/api/v1/game/players") {
+    else if (target == "/api/v1/game/players" || target == "/api/v1/game/players/") {
         return HandleGetPlayers(req);
     }
-    else if (target == "/api/v1/game/state") {
+    else if (target == "/api/v1/game/state" || target == "/api/v1/game/state/") {
         return HandleGetGameState(req);
     }
-    else if (target == "/api/v1/game/player/action") {
+    else if (target == "/api/v1/game/player/action" || target == "/api/v1/game/player/action/") {
         return HandlePlayerAction(req);
     }
-    else if (target == "/api/v1/game/tick") {
+    else if (target == "/api/v1/game/tick" || target == "/api/v1/game/tick/") {
         return HandleGameTick(req);
     }
 
