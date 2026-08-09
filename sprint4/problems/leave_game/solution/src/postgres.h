@@ -10,12 +10,11 @@
 
 namespace database {
 
-// Вспомогательный класс пула соединений
 class ConnectionPool {
 public:
     using ConnectionPtr = std::shared_ptr<pqxx::connection>;
 
-    ConnectionPool(size_t capacity, std::string connection_string) {
+    ConnectionPool(size_t capacity, const std::string& connection_string) {
         for (size_t i = 0; i < capacity; ++i) {
             pool_.emplace(std::make_shared<pqxx::connection>(connection_string));
         }
@@ -43,6 +42,7 @@ private:
 
 class PostgresDatabase {
 public:
+    // Сигнатура строго с const std::string&
     explicit PostgresDatabase(const std::string& db_url);
 
     void SaveRecord(const model::RetiredDogInfo& record);
@@ -50,7 +50,7 @@ public:
 
 private:
     std::string connection_string_;
-    ConnectionPool pool_; // Наш пул коннектов
+    ConnectionPool pool_;
 
     void Init();
 };
