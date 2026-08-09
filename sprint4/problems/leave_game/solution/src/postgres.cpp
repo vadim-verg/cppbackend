@@ -88,7 +88,7 @@ std::vector<model::RetiredDogInfo> PostgresDatabase::GetRecords(size_t start, si
         for (const auto& row : rows) {
             model::RetiredDogInfo info;
 
-            // ИСПРАВЛЕНО: Явно выбираем ячейки по их порядковому индексу в SELECT запросе
+            // Безопасное извлечение по индексам колонок
             info.name = row[0].as<std::string>();
             info.score = row[1].as<int>();
             info.play_time = row[2].as<double>();
