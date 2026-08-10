@@ -1,3 +1,5 @@
+// Final Release Version 1.1.2 - Clear Cache
+
 #include "sdk.h"
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/signal_set.hpp>

@@ -13,7 +13,6 @@ namespace database {
 
 class PostgresDatabase {
 public:
-    // Конструктор пишем прямо внутри заголовочного файла (inline), чтобы сбросить кэш
     explicit PostgresDatabase(const std::string& db_url)
         : connection_string_(db_url) {}
 
@@ -25,14 +24,12 @@ public:
 private:
     std::string connection_string_;
 
-    // Пул соединений полностью инкапсулирован внутри хедера
     std::mutex pool_mutex_;
     std::condition_variable pool_cv_;
     std::queue<std::unique_ptr<pqxx::connection>> pool_;
     size_t pool_capacity_ = 10;
     size_t created_connections_ = 0;
 
-    // Методы пула делаем инлайн, чтобы компилятор собрал их мгновенно без рассинхронизации
     std::unique_ptr<pqxx::connection> GetConnection() {
         std::unique_lock<std::mutex> lock(pool_mutex_);
         if (pool_.empty() && created_connections_ < pool_capacity_) {
@@ -40,8 +37,8 @@ private:
                 auto conn = std::make_unique<pqxx::connection>(connection_string_);
                 ++created_connections_;
                 return conn;
-            } catch (const std::exception& e) {
-                std::cerr << "[DB Pool] Failed to create lazy connection: " << e.what() << std::endl;
+            } catch (...) {
+                // Если база еще не готова, не падаем
             }
         }
         pool_cv_.wait(lock, [this] { return !pool_.empty(); });

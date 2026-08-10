@@ -32,7 +32,6 @@ std::vector<model::RetiredDogInfo> PostgresDatabase::GetRecords(size_t start, si
         pqxx::work tr(*conn);
         EnsureTableExists(tr);
 
-        // Извлекаем поля: name, score, play_time
         auto rows = tr.exec_params(
             "SELECT name, score, play_time FROM retired_players ORDER BY score DESC, play_time ASC, name ASC LIMIT $1 OFFSET $2;",
             max_items, start
