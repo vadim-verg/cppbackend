@@ -445,6 +445,21 @@ public:
         }
     }
 
+    // Возвращает статус бездействия
+    bool IsIdleStarted() const noexcept {
+        return is_idle_started_;
+    }
+
+    // Позволяет принудительно выставить накопленное время бездействия
+    void SetIdleTime(double t) noexcept {
+        idle_time_ = t;
+    }
+
+    // Позволяет принудительно выставить общее игровое время
+    void SetPlayTime(double t) noexcept {
+        play_time_ = t;
+    }
+
 private:
     Id id_;
     std::string name_;

@@ -50,7 +50,11 @@ public:
         , direction_(dog.GetDirection())
         , score_(dog.GetScore())
         , bag_capacity_(dog.GetBagCapacity())
-        , bag_(dog.GetBag()) {}
+        , bag_(dog.GetBag())
+        // Фиксируем новые временные метки из ТЗ
+        , play_time_(dog.GetPlayTime())
+        , idle_time_(dog.GetIdleTime())
+        , is_idle_started_(dog.IsIdleStarted()) {}
 
     [[nodiscard]] model::Dog Restore() const {
         model::Dog dog{id_, name_, pos_};
@@ -63,6 +67,11 @@ public:
                 throw std::runtime_error("Failed to restore dog bag content");
             }
         }
+        // Восстанавливаем временное состояние пса по ТЗ
+        dog.SetPlayTime(play_time_);
+        dog.SetIdleTime(idle_time_);
+        dog.SetIdleStarted(is_idle_started_);
+
         return dog;
     }
 
@@ -76,6 +85,10 @@ public:
         ar & score_;
         ar & bag_capacity_;
         ar & bag_;
+        // Записываем / считываем поля времени через Boost.Archive
+        ar & play_time_;
+        ar & idle_time_;
+        ar & is_idle_started_;
     }
 
 private:
@@ -87,6 +100,11 @@ private:
     int score_ = 0;
     size_t bag_capacity_ = 0;
     std::vector<model::BagItem> bag_;
+
+    // Новые сериализуемые поля для Практикума
+    double play_time_ = 0.0;
+    double idle_time_ = 0.0;
+    bool is_idle_started_ = false;
 };
 
 // Снимок Потерянного предмета
