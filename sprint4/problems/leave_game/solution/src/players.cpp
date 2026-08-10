@@ -35,27 +35,25 @@ std::optional<JoinGameResult> Application::JoinGame(const std::string& user_name
         return std::nullopt;
     }
 
-    model::Point2D start_pos;
+    model::Point2D start_pos{0.0, 0.0};
     if (randomize_spawn_) {
-        // Если рандом включен — используем генерацию случайной позиции
         start_pos = model::CalculateRandomDogPosition(*map_ptr);
     } else {
-        // Если рандом выключен — берем координаты начала (x0, y0) первой дороги
         const auto& roads = map_ptr->GetRoads();
         if (!roads.empty()) {
             auto start_road = roads.at(0).GetStart();
             start_pos = {static_cast<double>(start_road.x), static_cast<double>(start_road.y)};
-        } else {
-            start_pos = {0.0, 0.0}; // если дорог на карте нет
         }
     }
 
     auto player = player_manager_.CreatePlayer(user_name, map_id);
 
+    // ИСПРАВЛЕНО: Присваиваем собаке вместимость рюкзака, заданную для этой карты по ТЗ Практикума!
     model::Dog::Id dog_id{player->GetId()};
     auto dog = std::make_shared<model::Dog>(dog_id, user_name, start_pos);
-    player->SetDog(dog);
+    dog->SetBagCapacity(map_ptr->GetBagCapacity());
 
+    player->SetDog(dog);
     std::string token = player_tokens_.AddPlayer(player);
 
     return JoinGameResult{token, player->GetId()};
