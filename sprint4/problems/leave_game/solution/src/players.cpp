@@ -188,19 +188,18 @@ void Application::Tick(double delta_time_seconds) {
         auto map_ptr = game_.FindMap(model::Map::Id{player->GetMapId()});
         if (!map_ptr) continue;
 
-        // 1. Обновляем игровое время собаки и время её бездействия
+        // Обновляем игровое время собаки
         dog_ptr->UpdateTime(delta_time_seconds);
 
-        // 2. Проверяем, не пора ли псу на заслуженный отдых
-        if (dog_ptr->GetIdleTime() >= retirement_timeout) {
+        // === ИСПРАВЛЕНО: Проверяем таймаут, только если он включен (больше 0) ===
+        if (retirement_timeout > 0.0 && dog_ptr->GetIdleTime() >= retirement_timeout) {
             players_to_retire.push_back(id);
-            continue; // Эту собаку больше не двигаем и коллизии для неё в этом тике не считаем
+            continue;
         }
+        // ======================================================================
 
         dog_start_positions[dog_ptr->GetId().operator*()] = dog_ptr->GetPosition();
-
         UpdateDogPosition(*dog_ptr, *map_ptr, delta_time_seconds);
-
         map_to_dogs[player->GetMapId()].push_back(dog_ptr);
     }
 

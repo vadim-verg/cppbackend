@@ -113,7 +113,7 @@ ParsedGameData LoadGame(const std::filesystem::path& json_path) {
         double retirement_time = GetDoubleValue(root_object.at("dogRetirementTime"));
         game.SetDogRetirementTime(retirement_time);
     } else {
-        game.SetDogRetirementTime(60.0); // Дефолт по ТЗ — 1 минута
+        game.SetDogRetirementTime(0.0); // 0.0 означает, что таймаут бездействия ОТКЛЮЧЕН
     }
 
     if (root_object.contains("lootGeneratorConfig")) {
