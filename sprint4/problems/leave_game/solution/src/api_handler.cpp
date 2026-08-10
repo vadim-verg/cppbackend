@@ -1,6 +1,5 @@
-// Final Release Version 1.1.2 - Clear Cache
-
 #include "api_handler.h"
+#include <iostream>
 
 namespace http_handler {
 
@@ -64,8 +63,8 @@ http::response<http::string_body> ApiHandler::HandleJoinGame(const http::request
     std::string user_name;
     std::string map_id;
 
+    // --- ТОЛЬКО ПАРСИНГ JSON ВНУТРИ ЭТОГО TRY-CATCH ---
     try {
-        // Защита от пустого тела
         if (req.body().empty()) {
             return MakeErrorResponse(http::status::bad_request, "invalidArgument", "Empty body", version);
         }
@@ -77,7 +76,6 @@ http::response<http::string_body> ApiHandler::HandleJoinGame(const http::request
 
         const auto& json_obj = json_doc.as_object();
 
-        // Безопасно извлекаем userName
         if (json_obj.contains("userName")) {
             const auto& val = json_obj.at("userName");
             if (val.is_string()) {
@@ -85,7 +83,6 @@ http::response<http::string_body> ApiHandler::HandleJoinGame(const http::request
             }
         }
 
-        // Безопасно извлекаем mapId
         if (json_obj.contains("mapId")) {
             const auto& val = json_obj.at("mapId");
             if (val.is_string()) {
@@ -96,13 +93,21 @@ http::response<http::string_body> ApiHandler::HandleJoinGame(const http::request
         return MakeErrorResponse(http::status::bad_request, "invalidArgument", "Join game request parse error", version);
     }
 
-    // ТЗ Практикума: имя пользователя не должно быть пустым
+    // Валидация входных данных по ТЗ Практикума
     if (user_name.empty()) {
         return MakeErrorResponse(http::status::bad_request, "invalidArgument", "Invalid name", version);
     }
 
-    // ТЗ Практикума: если карта не найдена, возвращаем 404
-    auto join_result = app_.JoinGame(user_name, map_id);
+    // --- ВЫЗОВ БИЗНЕС-ЛОГИКИ С ОТДЕЛЬНЫМ ОБРАБОТЧИКОМ ОШИБОК КРАША БД/СЕРВЕРА ---
+    std::optional<Application::JoinResult> join_result;
+    try {
+        join_result = app_.JoinGame(user_name, map_id);
+    } catch (const std::exception& e) {
+        // Выводим реальную ошибку пула или PostgreSQL в лог гитхаба
+        std::cerr << "[FATAL JOIN ERROR]: " << e.what() << std::endl;
+        return MakeErrorResponse(http::status::internal_server_error, "internalServerError", "Internal server error occurred", version);
+    }
+
     if (!join_result) {
         return MakeErrorResponse(http::status::not_found, "mapNotFound", "Map not found", version);
     }
@@ -165,26 +170,22 @@ http::response<http::string_body> ApiHandler::HandleGetPlayers(const http::reque
 http::response<http::string_body> ApiHandler::HandleGetGameState(const http::request<http::string_body>& req) const {
     unsigned int version = req.version();
 
-    // Проверка метода - только GET и HEAD
     if (req.method() != http::verb::get && req.method() != http::verb::head) {
         auto res = MakeErrorResponse(http::status::method_not_allowed, "invalidMethod", "Invalid method", version);
         res.set(http::field::allow, "GET, HEAD");
         return res;
     }
 
-    // Проверка токена - в формате Bearer
     auto token = TryExtractToken(req);
     if (!token) {
         return MakeErrorResponse(http::status::unauthorized, "invalidToken", "Authorization header is required", version);
     }
 
-    // Поиск сессии - токен должен существовать в базе приложения
     auto players_opt = app_.GetPlayersInSession(*token);
     if (!players_opt) {
         return MakeErrorResponse(http::status::unauthorized, "unknownToken", "Player token has not been found", version);
     }
 
-    // Строим JSON-объект состояния всех игроков текущей сессии
     boost::json::object players_json;
     model::Map::Id current_map_id{""};
 
@@ -208,14 +209,12 @@ http::response<http::string_body> ApiHandler::HandleGetGameState(const http::req
             json_bag.push_back(std::move(json_item));
         }
         dog_data["bag"] = std::move(json_bag);
-
         dog_data["score"] = dog_ptr->GetScore();
 
         players_json.emplace(std::to_string(player->GetId()), dog_data);
     }
 
     boost::json::object lost_objects_json;
-
     const auto& game = app_.GetGame();
     const auto& lost_objects = game.GetLostObjects(current_map_id);
 
@@ -241,135 +240,6 @@ http::response<http::string_body> ApiHandler::HandleGetGameState(const http::req
 
     res.prepare_payload();
     return res;
-}
-
-// POST /api/v1/game/player/action
-http::response<http::string_body> ApiHandler::HandlePlayerAction(const http::request<http::string_body>& req) const {
-    unsigned int version = req.version();
-
-    if (req.method() != http::verb::post) {
-        auto res = MakeErrorResponse(http::status::method_not_allowed, "invalidMethod", "Only POST method is expected", version);
-        res.set(http::field::allow, "POST");
-        return res;
-    }
-
-    auto ct_it = req.find(http::field::content_type);
-    if (ct_it == req.end() || ct_it->value() != "application/json") {
-        return MakeErrorResponse(http::status::bad_request, "invalidArgument", "Invalid Content-Type", version);
-    }
-
-    // Валидация токена
-    auto token = TryExtractToken(req);
-    if (!token) {
-        return MakeErrorResponse(http::status::unauthorized, "invalidToken", "Authorization header is required", version);
-    }
-
-    // Парсинг тела JSON
-    std::string move_cmd;
-    try {
-        auto json_doc = boost::json::parse(req.body());
-        const auto& json_obj = json_doc.as_object();
-        if (json_obj.contains("move")) {
-            move_cmd = boost::json::value_to<std::string>(json_obj.at("move"));
-        }
-    } catch (const std::exception& e) {
-        return MakeErrorResponse(http::status::bad_request, "invalidArgument", "Failed to parse action JSON", version);
-    }
-
-    // Передаем команду в Application слой
-    if (!app_.MovePlayer(*token, move_cmd)) {
-        return MakeErrorResponse(http::status::unauthorized, "unknownToken", "Player token has not been found", version);
-    }
-
-    // Успешный ответ
-    http::response<http::string_body> res(http::status::ok, version);
-    res.set(http::field::content_type, "application/json");
-    res.set(http::field::cache_control, "no-cache");
-    res.body() = "{}";
-    res.prepare_payload();
-
-    return res;
-}
-
-// POST /api/v1/game/tick
-http::response<http::string_body> ApiHandler::HandleGameTick(const http::request<http::string_body>& req) const {
-    unsigned int version = req.version();
-
-    if (app_.IsAutomaticTicking()) {
-        return MakeErrorResponse(http::status::bad_request, "badRequest", "Invalid endpoint", version);
-    }
-
-    if (req.method() != http::verb::post) {
-        auto res = MakeErrorResponse(http::status::method_not_allowed, "invalidMethod", "Only POST method is expected", version);
-        res.set(http::field::allow, "POST");
-        return res;
-    }
-
-    auto ct_it = req.find(http::field::content_type);
-    if (ct_it == req.end() || ct_it->value() != "application/json") {
-        return MakeErrorResponse(http::status::bad_request, "invalidArgument", "Invalid Content-Type", version);
-    }
-
-    // Парсим дельту времени из JSON
-    int64_t delta_ms = 0;
-    try {
-        auto json_doc = boost::json::parse(req.body());
-        const auto& json_obj = json_doc.as_object();
-        delta_ms = json_obj.at("timeDelta").as_int64();
-    } catch (...) {
-        return MakeErrorResponse(http::status::bad_request, "invalidArgument", "Failed to parse tick request JSON", version);
-    }
-
-    // шаг симуляции
-    app_.Tick(static_cast<double>(delta_ms) / 1000.0);
-
-    // Если сработал таймер автоматического сохранения — записываем на диск
-    if (state_manager_ && app_.PopShouldSaveState()) {
-        state_manager_->SaveState(app_);
-    }
-
-    // Успешный ответ
-    http::response<http::string_body> res(http::status::ok, version);
-    res.set(http::field::content_type, "application/json");
-    res.set(http::field::cache_control, "no-cache");
-    res.body() = "{}";
-    res.prepare_payload();
-
-    return res;
-}
-
-http::response<http::string_body> ApiHandler::HandleRequest(const http::request<http::string_body>& req) const {
-    auto target_boost = req.target();
-    std::string_view target{target_boost.data(), target_boost.size()};
-    unsigned int version = req.version();
-
-    // Обрезаем query параметры перед анализом пути
-    if (auto query_pos = target.find('?'); query_pos != std::string_view::npos) {
-        target = target.substr(0, query_pos);
-    }
-
-    // Убираем завершающий слэш для унификации
-    if (target.ends_with('/') && target.size() > 1) {
-        target.remove_suffix(1);
-    }
-
-    if (target == "/api/v1/game/join") {
-        return HandleJoinGame(req);
-    }
-    if (target == "/api/v1/game/players") {
-        return HandleGetPlayers(req);
-    }
-    if (target == "/api/v1/game/state") {
-        return HandleGetGameState(req);
-    }
-    if (target == "/api/v1/game/player/action") {
-        return HandlePlayerAction(req);
-    }
-    if (target == "/api/v1/game/tick") {
-        return HandleGameTick(req);
-    }
-
-    return MakeErrorResponse(http::status::bad_request, "badRequest", "Invalid endpoint", version);
 }
 
 } // namespace http_handler

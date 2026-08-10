@@ -3,9 +3,46 @@
 
 namespace database {
 
-void PostgresDatabase::SaveRecord(const model::RetiredDogInfo& record) {
-    auto conn = GetConnection();
+PostgresDatabase::ConnectionPtr PostgresDatabase::GetConnection() {
+    std::unique_lock<std::mutex> lock(pool_mutex_);
+
+    // Исправлено условие ожидания: поток засыпает только если пул пуст И лимит соединений уже исчерпан
+    pool_cv_.wait(lock, [this] {
+        return !pool_.empty() || created_connections_ < pool_capacity_;
+    });
+
+    std::unique_ptr<pqxx::connection> conn;
+
+    if (!pool_.empty()) {
+        conn = std::move(pool_.front());
+        pool_.pop();
+    } else {
+        try {
+            conn = std::make_unique<pqxx::connection>(connection_string_);
+            ++created_connections_;
+        } catch (const std::exception& e) {
+            std::cerr << "[DB Connection Error]: " << e.what() << std::endl;
+            throw; // Пробрасываем ошибку, чтобы сервер выдал 500, а не завис
+        }
+    }
+
+    // Возвращаем shared_ptr. Лямбда-делетер перехватывает управление при уничтожении
+    return ConnectionPtr(conn.release(), [this](pqxx::connection* p) {
+        std::unique_ptr<pqxx::connection> to_return(p);
+        ReturnConnection(std::move(to_return));
+    });
+}
+
+void PostgresDatabase::ReturnConnection(std::unique_ptr<pqxx::connection> conn) {
     if (!conn) return;
+    std::lock_guard<std::mutex> lock(pool_mutex_);
+    pool_.push(std::move(conn));
+    pool_cv_.notify_one(); // Пробуждаем один из ждущих потоков
+}
+
+void PostgresDatabase::SaveRecord(const model::RetiredDogInfo& record) {
+    // Автоматическое получение соединения
+    auto conn = GetConnection();
 
     try {
         pqxx::work tr(*conn);
@@ -19,22 +56,21 @@ void PostgresDatabase::SaveRecord(const model::RetiredDogInfo& record) {
     } catch (const std::exception& e) {
         std::cerr << "[DB Error] SaveRecord failed: " << e.what() << std::endl;
     }
-
-    ReturnConnection(std::move(conn));
+    // Коннект автоматически возвращается в пул при выходе из области видимости функции
 }
 
 std::vector<model::RetiredDogInfo> PostgresDatabase::GetRecords(size_t start, size_t max_items) {
     std::vector<model::RetiredDogInfo> result;
     auto conn = GetConnection();
-    if (!conn) return result;
 
     try {
         pqxx::work tr(*conn);
         EnsureTableExists(tr);
 
+        // Используем явное приведение параметров string для exec_params
         auto rows = tr.exec_params(
             "SELECT name, score, play_time FROM retired_players ORDER BY score DESC, play_time ASC, name ASC LIMIT $1 OFFSET $2;",
-            max_items, start
+            std::to_string(max_items), std::to_string(start)
             );
 
         result.reserve(rows.size());
@@ -50,8 +86,22 @@ std::vector<model::RetiredDogInfo> PostgresDatabase::GetRecords(size_t start, si
         std::cerr << "[DB Error] GetRecords failed: " << e.what() << std::endl;
     }
 
-    ReturnConnection(std::move(conn));
     return result;
+}
+
+void PostgresDatabase::EnsureTableExists(pqxx::work& tr) {
+    tr.exec(R"(
+        CREATE TABLE IF NOT EXISTS retired_players (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(100) NOT NULL,
+            score INT NOT NULL,
+            play_time DOUBLE PRECISION NOT NULL
+        );
+    )");
+    tr.exec(R"(
+        CREATE INDEX IF NOT EXISTS idx_retired_players_sort
+        ON retired_players (score DESC, play_time ASC, name ASC);
+    )");
 }
 
 } // namespace database

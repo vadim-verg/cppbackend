@@ -6,20 +6,26 @@
 #include <mutex>
 #include <queue>
 #include <condition_variable>
-#include <iostream>
 #include "model.h"
 
 namespace database {
 
 class PostgresDatabase {
 public:
+    // Умный указатель, который автоматически возвращает соединение в пул при уничтожении
+    using ConnectionPtr = std::shared_ptr<pqxx::connection>;
+
     explicit PostgresDatabase(const std::string& db_url)
         : connection_string_(db_url) {}
 
     ~PostgresDatabase() = default;
 
+    // Основные методы работы с рекордами
     void SaveRecord(const model::RetiredDogInfo& record);
     std::vector<model::RetiredDogInfo> GetRecords(size_t start, size_t max_items);
+
+    // Метод получения безопасного соединения (вынесен в public для возможности использования в других слоях)
+    ConnectionPtr GetConnection();
 
 private:
     std::string connection_string_;
@@ -27,47 +33,14 @@ private:
     std::mutex pool_mutex_;
     std::condition_variable pool_cv_;
     std::queue<std::unique_ptr<pqxx::connection>> pool_;
-    size_t pool_capacity_ = 10;
+    size_t pool_capacity_ = 50; // Увеличено до 50 для выдерживания массовых тестов на 150 игроков
     size_t created_connections_ = 0;
 
-    std::unique_ptr<pqxx::connection> GetConnection() {
-        std::unique_lock<std::mutex> lock(pool_mutex_);
-        if (pool_.empty() && created_connections_ < pool_capacity_) {
-            try {
-                auto conn = std::make_unique<pqxx::connection>(connection_string_);
-                ++created_connections_;
-                return conn;
-            } catch (...) {
-                // Если база еще не готова, не падаем
-            }
-        }
-        pool_cv_.wait(lock, [this] { return !pool_.empty(); });
-        auto conn = std::move(pool_.front());
-        pool_.pop();
-        return conn;
-    }
+    // Внутренний метод возврата сырого указателя в пул
+    void ReturnConnection(std::unique_ptr<pqxx::connection> conn);
 
-    void ReturnConnection(std::unique_ptr<pqxx::connection> conn) {
-        if (!conn) return;
-        std::lock_guard<std::mutex> lock(pool_mutex_);
-        pool_.push(std::move(conn));
-        pool_cv_.notify_one();
-    }
-
-    void EnsureTableExists(pqxx::work& tr) {
-        tr.exec(R"(
-            CREATE TABLE IF NOT EXISTS retired_players (
-                id SERIAL PRIMARY KEY,
-                name VARCHAR(100) NOT NULL,
-                score INT NOT NULL,
-                play_time DOUBLE PRECISION NOT NULL
-            );
-        )");
-        tr.exec(R"(
-            CREATE INDEX IF NOT EXISTS idx_retired_players_sort
-            ON retired_players (score DESC, play_time ASC, name ASC);
-        )");
-    }
+    // Метод инициализации схемы БД
+    void EnsureTableExists(pqxx::work& tr);
 };
 
 } // namespace database
