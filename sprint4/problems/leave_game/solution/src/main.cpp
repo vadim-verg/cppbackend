@@ -197,10 +197,9 @@ int main(int argc, const char* argv[]) {
         if (args_opt->state_file.has_value()) {
             state_manager = std::make_shared<StateManager>(args_opt->state_file.value());
 
-            // Если в файле битые данные — логируем ошибку и выходим
+            // Защита: Если файл пустой или формат старый — логируем, но НЕ выходим через FAILURE!
             if (!state_manager->LoadState(app, game)) {
-                BOOST_LOG_TRIVIAL(error) << "Error: Failed to restore state from file: " << args_opt->state_file.value();
-                return EXIT_FAILURE;
+                BOOST_LOG_TRIVIAL(warning) << "Warning: Could not restore state from file (empty or old format), starting fresh.";
             }
 
             // Настраиваем параметры времени внутри Application без циклической зависимости
