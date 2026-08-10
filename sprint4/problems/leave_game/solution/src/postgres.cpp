@@ -39,11 +39,12 @@ ConnectionPtr ConnectionPool::GetConnection() {
         try {
             return ConnectionPtr(std::make_shared<pqxx::connection>(db_url_), *this);
         } catch (...) {
-            // Если и сейчас не вышло — ждем по cv, как обычно
+            // Если и сейчас не вышло — ждем по cv_, как обычно
         }
     }
 
-    cv.wait(lock, [this] { return !pool_.empty(); });
+    // === ИСПРАВЛЕНО: cv_ вместо cv ===
+    cv_.wait(lock, [this] { return !pool_.empty(); });
 
     auto conn = pool_.front();
     pool_.pop();

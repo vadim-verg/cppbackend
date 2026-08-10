@@ -144,7 +144,7 @@ int main(int argc, const char* argv[]) {
         }
     }
     // Считаем количество потоков заранее, чтобы передать в пул соединений БД
-    const unsigned num_threads = std::thread::hardware_concurrency();
+//    const unsigned num_threads = std::thread::hardware_concurrency();
 
     std::optional<json_loader::ParsedGameData> parsed_data_opt;
 
