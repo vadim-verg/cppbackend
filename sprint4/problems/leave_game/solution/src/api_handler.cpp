@@ -18,7 +18,13 @@ http::response<http::string_body> ApiHandler::MakeErrorResponse(
     obj["code"] = code;
     obj["message"] = message;
 
-    res.body() = boost::json::serialize(obj);
+    std::string body_str = boost::json::serialize(obj);
+
+    // === ВРЕМЕННЫЙ ОТЛАДОЧНЫЙ ВЫВОД ДЛЯ ТЕСТОВ ===
+    std::cout << "[API ERROR LOG] Code: " << code << ", Message: " << message << std::endl << std::flush;
+    // =============================================
+
+    res.body() = body_str;
     res.prepare_payload();
     return res;
 }
