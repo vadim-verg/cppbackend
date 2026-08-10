@@ -137,9 +137,8 @@ int main(int argc, const char* argv[]) {
     if (!db_url.empty()) {
         try {
             db = std::make_shared<database::Database>(db_url, 2);
-        } catch (const std::exception& ex) {
-            std::cerr << "Database пул ошибка создания: " << ex.what() << std::endl;
-        }
+            database::Database::SetInstance(db); // Сохраняем в глобальный инстанс!
+        } catch (...) {}
     }
     // Считаем количество потоков заранее, чтобы передать в пул соединений БД
 //    const unsigned num_threads = std::thread::hardware_concurrency();
@@ -168,20 +167,18 @@ int main(int argc, const char* argv[]) {
 
         // Подписываем базу данных на событие ухода собаки на покой
         if (db) {
-            app.dog_retired_signal.connect([db](const std::string& name, int score, double play_time) {
-                try {
-                    // Гарантируем структуру перед вставкой
-                    db->InitializeStructure();
-
-                    auto conn_ptr = db->GetPool().GetConnection();
-                    pqxx::work tx(*conn_ptr);
-                    tx.exec_params(
-                        "INSERT INTO retired_players (name, score, play_time) VALUES ($1, $2, $3);",
-                        name, score, play_time
-                        );
-                    tx.commit();
-                } catch (const std::exception& ex) {
-                    std::cerr << "Failed to save retired dog record: " << ex.what() << std::endl;
+            app.dog_retired_signal.connect([](const std::string& name, int score, double play_time) {
+                auto db = database::Database::GetInstance();
+                if (db) {
+                    try {
+                        auto conn_ptr = db->GetPool().GetConnection();
+                        pqxx::work tx(*conn_ptr);
+                        tx.exec_params(
+                            "INSERT INTO retired_players (name, score, play_time) VALUES ($1, $2, $3);",
+                            name, score, play_time
+                            );
+                        tx.commit();
+                    } catch (...) {}
                 }
             });
         }
@@ -239,8 +236,7 @@ int main(int argc, const char* argv[]) {
         }
 
         auto handler = std::make_shared<http_handler::RequestHandler>(
-            game, std::filesystem::path(args_opt->www_root), app, loot_info, state_manager, db
-            );
+            game, std::filesystem::path(args_opt->www_root), app, loot_info, state_manager);
 
         // Настраиваем перехват сигналов SIGINT и SIGTERM для сохранения при выходе
         boost::asio::signal_set signals(ioc, SIGINT, SIGTERM);

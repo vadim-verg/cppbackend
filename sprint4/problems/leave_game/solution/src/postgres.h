@@ -75,9 +75,17 @@ public:
     // Получить отсортированный список рекордов с пагинацией
     std::vector<PlayerRecord> GetRecords(int start, int max_items);
 
+    static void SetInstance(std::shared_ptr<Database> instance) {
+        instance_ = instance;
+    }
+    static std::shared_ptr<Database> GetInstance() {
+        return instance_;
+    }
+
 private:
     std::string db_url_;
     ConnectionPool pool_;
+    inline static std::shared_ptr<Database> instance_ = nullptr;
 };
 
 } // namespace database

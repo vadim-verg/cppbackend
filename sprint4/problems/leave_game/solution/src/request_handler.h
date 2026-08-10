@@ -76,11 +76,10 @@ public:
                             std::filesystem::path static_path,
                             app::Application& app,
                             const app::LootInfoProvider& loot_info,
-                            std::shared_ptr<StateManager> state_manager,
-                            std::shared_ptr<database::Database> db)
+                            std::shared_ptr<StateManager> state_manager)
         : game_{game}
         , static_path_{std::move(static_path)}
-        , api_handler_{app, state_manager, db}
+        , api_handler_{app, state_manager} // Оригинальный вызов!
         , loot_info_{loot_info} {}
 
     RequestHandler(const RequestHandler&) = delete;
@@ -123,7 +122,7 @@ public:
                     send(MakeMethodNotAllowedResponse(req));
                     return;
                 }
-                send(api_handler_.HandleGetRecords(req));
+                send(HandleGetRecords(req));
                 return;
             }
 
@@ -344,6 +343,67 @@ private:
         res.set(http::field::content_type, "application/json");
         res.set(http::field::cache_control, "no-cache");
         res.prepare_payload();
+        return res;
+    }
+
+    static std::optional<std::string_view> FindQueryParam(std::string_view target, std::string_view key) {
+        auto query_pos = target.find('?');
+        if (query_pos == std::string_view::npos) return std::nullopt;
+
+        std::string_view query = target.substr(query_pos + 1);
+        size_t pos = 0;
+        while (pos < query.size()) {
+            size_t next_amp = query.find('&', pos);
+            std::string_view pair = (next_amp == std::string_view::npos) ? query.substr(pos) : query.substr(pos, next_amp - pos);
+            size_t eq_pos = pair.find('=');
+            if (eq_pos != std::string_view::npos) {
+                if (pair.substr(0, eq_pos) == key) return pair.substr(eq_pos + 1);
+            }
+            if (next_amp == std::string_view::npos) break;
+            pos = next_amp + 1;
+        }
+        return std::nullopt;
+    }
+
+    template <typename Body, typename Allocator>
+    http::response<http::string_body> HandleGetRecords(const http::request<Body, http::basic_fields<Allocator>>& req) const {
+        unsigned int version = req.version();
+        auto db = database::Database::GetInstance();
+
+        if (!db) {
+            auto res = MakeBaseResponse(req, http::status::ok, "[]");
+            if (req.method() == http::verb::head) res.body() = "";
+            return res;
+        }
+
+        std::string_view target{req.target().data(), req.target().size()};
+        int start = 0;
+        int max_items = 100;
+
+        if (auto start_opt = FindQueryParam(target, "start")) {
+            std::string val( *start_opt );
+            try { start = std::stoi(val); } catch (...) { return MakeBaseResponse(req, http::status::bad_request, R"({"code":"badRequest","message":"Invalid start"})"); }
+            if (start < 0) return MakeBaseResponse(req, http::status::bad_request, R"({"code":"badRequest","message":"Invalid start"})");
+        }
+
+        if (auto max_items_opt = FindQueryParam(target, "maxItems")) {
+            std::string val( *max_items_opt );
+            try { max_items = std::stoi(val); } catch (...) { return MakeBaseResponse(req, http::status::bad_request, R"({"code":"badRequest","message":"Invalid maxItems"})"); }
+            if (max_items < 0 || max_items > 100) return MakeBaseResponse(req, http::status::bad_request, R"({"code":"badRequest","message":"Invalid maxItems"})");
+        }
+
+        auto records = db->GetRecords(start, max_items);
+        boost::json::array json_records;
+        for (const auto& rec : records) {
+            boost::json::object obj;
+            obj["name"] = rec.name;
+            obj["score"] = rec.score;
+            obj["playTime"] = rec.play_time;
+            json_records.push_back(std::move(obj));
+        }
+
+        auto res = MakeBaseResponse(req, http::status::ok, boost::json::serialize(json_records));
+        if (req.method() == http::verb::head) res.body() = "";
         return res;
     }
 
