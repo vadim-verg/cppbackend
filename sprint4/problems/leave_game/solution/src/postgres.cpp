@@ -3,47 +3,38 @@
 
 namespace database {
 
-// --- ConnectionPtr Реализация ---
+// --- ConnectionPtr реализация ---
 ConnectionPtr::~ConnectionPtr() {
     if (conn_) {
         pool_.ReturnConnection(std::move(conn_));
     }
 }
 
-// --- ConnectionPool Реализация ---
+// --- ConnectionPool реализация ---
 ConnectionPool::ConnectionPool(size_t capacity, std::string db_url)
     : capacity_(capacity)
 {
-    std::string final_url = std::move(db_url);
-    if (final_url.find("postgres://") == 0) {
-        final_url.insert(8, "ql");
+    if (db_url.find("postgres://") == 0) {
+        db_url.insert(8, "ql");
     }
-    this->db_url_ = final_url;
+    db_url_ = std::move(db_url);
 
-    // Пытаемся заполнить пул. Если база «лежит», не падаем, а попробуем открывать лениво
-    try {
-        for (size_t i = 0; i < capacity_; ++i) {
-            pool_.push(std::make_shared<pqxx::connection>(this->db_url_));
-        }
-    } catch (const std::exception& e) {
-        std::cerr << "[Pool Warning] Could not pre-warm DB connections: " << e.what() << std::endl;
-        // Оставляем пул пустым, он наполнится лениво при вызовах, если база оживет
-    }
+    // Не открываем соединения в конструкторе, чтобы не упасть, если БД ещё не поднялась
 }
 
 ConnectionPtr ConnectionPool::GetConnection() {
     std::unique_lock<std::mutex> lock(mutex_);
 
-    // Если на старте база лежала и пул пуст — пробуем создать коннект прямо сейчас
+    // Если в пуле пусто, но мы ещё не достигли лимита capacity_, создаем новое соединение на лету
     if (pool_.empty()) {
         try {
-            return ConnectionPtr(std::make_shared<pqxx::connection>(db_url_), *this);
+            auto new_conn = std::make_shared<pqxx::connection>(db_url_);
+            return ConnectionPtr(std::move(new_conn), *this);
         } catch (...) {
-            // Если и сейчас не вышло — ждем по cv_, как обычно
+            // Если база недоступна, подождем по условной переменной, вдруг освободится существующее
         }
     }
 
-    // === ИСПРАВЛЕНО: cv_ вместо cv ===
     cv_.wait(lock, [this] { return !pool_.empty(); });
 
     auto conn = pool_.front();
@@ -54,66 +45,74 @@ ConnectionPtr ConnectionPool::GetConnection() {
 void ConnectionPool::ReturnConnection(std::shared_ptr<pqxx::connection> conn) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        pool_.push(std::move(conn));
+        // Защита: не накапливаем в пуле больше соединений, чем capacity_
+        if (pool_.size() < capacity_) {
+            pool_.push(std::move(conn));
+        }
     }
     cv_.notify_one();
 }
 
-// --- Database Реализация ---
+// --- Database реализация ---
 Database::Database(const std::string& db_url, size_t pool_capacity)
     : db_url_(db_url), pool_(pool_capacity, db_url)
 {
 }
 
 void Database::InitializeStructure() {
-    // Получаем безопасное соединение из только что созданного пула
-    auto conn_ptr = pool_.GetConnection();
-    pqxx::work tx(*conn_ptr);
+    try {
+        auto conn_ptr = pool_.GetConnection();
+        pqxx::work tx(*conn_ptr);
 
-    // Создаем таблицу
-    tx.exec(R"(
-        CREATE TABLE IF NOT EXISTS retired_players (
-            id SERIAL PRIMARY KEY,
-            name VARCHAR(100) NOT NULL,
-            score INT NOT NULL,
-            play_time DOUBLE PRECISION NOT NULL
-        );
-    )");
+        tx.exec(R"(
+            CREATE TABLE IF NOT EXISTS retired_players (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(100) NOT NULL,
+                score INT NOT NULL,
+                play_time DOUBLE PRECISION NOT NULL
+            );
+        )");
 
-    // Создаем составной индекс
-    tx.exec(R"(
-        CREATE INDEX IF NOT EXISTS idx_retired_players_score_time_name
-        ON retired_players (score DESC, play_time ASC, name ASC);
-    )");
+        tx.exec(R"(
+            CREATE INDEX IF NOT EXISTS idx_retired_players_score_time_name
+            ON retired_players (score DESC, play_time ASC, name ASC);
+        )");
 
-    tx.commit();
+        tx.commit();
+    } catch (const std::exception& ex) {
+        std::cerr << "[DB Init Warning] Structure initialization postponed: " << ex.what() << std::endl;
+    }
 }
 
 std::vector<PlayerRecord> Database::GetRecords(int start, int max_items) {
-    auto conn_ptr = pool_.GetConnection();
-    pqxx::read_transaction tx(*conn_ptr);
+    // При каждом запросе рекордов на всякий случай убеждаемся, что таблица создана
+    InitializeStructure();
 
-    // SQL-запрос с сортировкой по ТЗ и лимитами
-    std::string query = R"(
-        SELECT name, score, play_time
-        FROM retired_players
-        ORDER BY score DESC, play_time ASC, name ASC
-        LIMIT )" + tx.quote(max_items) + " OFFSET " + tx.quote(start) + ";";
+    try {
+        auto conn_ptr = pool_.GetConnection();
+        pqxx::read_transaction tx(*conn_ptr);
 
-    pqxx::result res = tx.exec(query);
+        std::string query = "SELECT name, score, play_time FROM retired_players ORDER BY score DESC, play_time ASC, name ASC LIMIT "
+                            + tx.quote(max_items) + " OFFSET " + tx.quote(start) + ";";
 
-    std::vector<PlayerRecord> records;
-    records.reserve(res.size());
+        pqxx::result res = tx.exec(query);
 
-    for (const auto& row : res) {
-        records.push_back({
-            row["name"].as<std::string>(),
-            row["score"].as<int>(),
-            row["play_time"].as<double>()
-        });
+        std::vector<PlayerRecord> records;
+        records.reserve(res.size());
+
+        for (const auto& row : res) {
+            records.push_back({
+                row["name"].as<std::string>(),
+                row["score"].as<int>(),
+                row["play_time"].as<double>()
+            });
+        }
+
+        return records;
+    } catch (const std::exception& ex) {
+        std::cerr << "[DB Error] Failed to fetch records: " << ex.what() << std::endl;
+        return {}; // Возвращаем пустой вектор вместо падения сервера
     }
-
-    return records;
 }
 
 } // namespace database

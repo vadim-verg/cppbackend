@@ -172,6 +172,9 @@ int main(int argc, const char* argv[]) {
         if (db) {
             app.dog_retired_signal.connect([db](const std::string& name, int score, double play_time) {
                 try {
+                    // Гарантируем структуру перед вставкой
+                    db->InitializeStructure();
+
                     auto conn_ptr = db->GetPool().GetConnection();
                     pqxx::work tx(*conn_ptr);
                     tx.exec_params(
