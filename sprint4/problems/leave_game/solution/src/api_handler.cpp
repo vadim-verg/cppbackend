@@ -63,7 +63,6 @@ http::response<http::string_body> ApiHandler::HandleJoinGame(const http::request
     std::string user_name;
     std::string map_id;
 
-    // --- ТОЛЬКО ПАРСИНГ JSON ВНУТРИ ЭТОГО TRY-CATCH ---
     try {
         if (req.body().empty()) {
             return MakeErrorResponse(http::status::bad_request, "invalidArgument", "Empty body", version);
@@ -93,26 +92,17 @@ http::response<http::string_body> ApiHandler::HandleJoinGame(const http::request
         return MakeErrorResponse(http::status::bad_request, "invalidArgument", "Join game request parse error", version);
     }
 
-    // Валидация входных данных по ТЗ Практикума
     if (user_name.empty()) {
         return MakeErrorResponse(http::status::bad_request, "invalidArgument", "Invalid name", version);
     }
 
-    // --- ВЫЗОВ БИЗНЕС-ЛОГИКИ С ОТДЕЛЬНЫМ ОБРАБОТЧИКОМ ОШИБОК КРАША БД/СЕРВЕРА ---
-    std::optional<Application::JoinResult> join_result;
-    try {
-        join_result = app_.JoinGame(user_name, map_id);
-    } catch (const std::exception& e) {
-        // Выводим реальную ошибку пула или PostgreSQL в лог гитхаба
-        std::cerr << "[FATAL JOIN ERROR]: " << e.what() << std::endl;
-        return MakeErrorResponse(http::status::internal_server_error, "internalServerError", "Internal server error occurred", version);
-    }
+    // Исправлено: объявляем через автовывод типа из app_.JoinGame
+    auto join_result = app_.JoinGame(user_name, map_id);
 
     if (!join_result) {
         return MakeErrorResponse(http::status::not_found, "mapNotFound", "Map not found", version);
     }
 
-    // Формируем успешный ответ
     http::response<http::string_body> res(http::status::ok, version);
     res.set(http::field::content_type, "application/json");
     res.set(http::field::cache_control, "no-cache");
