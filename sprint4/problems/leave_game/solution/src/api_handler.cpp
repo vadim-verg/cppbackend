@@ -75,6 +75,9 @@ http::response<http::string_body> ApiHandler::HandleJoinGame(const http::request
         user_name = boost::json::value_to<std::string>(json_obj.at("userName"));
         map_id = boost::json::value_to<std::string>(json_obj.at("mapId"));
     } catch (const std::exception& e) {
+        // === ВСТАВЛЯЕМ ЭТОТ ЛОГ ===
+        std::cerr << "[CRITICAL JOIN ERROR] Parse failed. Body was: '" << req.body() << "'. Details: " << e.what() << std::endl << std::flush;
+        // ==========================
         return MakeErrorResponse(http::status::bad_request, "invalidArgument", "Join game request parse error", version);
     }
 
@@ -84,6 +87,9 @@ http::response<http::string_body> ApiHandler::HandleJoinGame(const http::request
 
     auto join_result = app_.JoinGame(user_name, map_id);
     if (!join_result) {
+        // === ВСТАВЛЯЕМ ЭТОТ ЛОГ ===
+        std::cerr << "[CRITICAL JOIN ERROR] Map not found or JoinGame returned nullopt. Name: " << user_name << ", Map: " << map_id << std::endl << std::flush;
+        // ==========================
         return MakeErrorResponse(http::status::not_found, "mapNotFound", "Map not found", version);
     }
 

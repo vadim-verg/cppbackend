@@ -129,6 +129,10 @@ public:
 
             // Полностью оригинальное игровое API Практикума (работает как раньше)
             if (target_sv.starts_with("/api/v1/game/")) {
+                // Временно подменяем target на очищенный от параметров путь,
+                // чтобы ApiHandler гарантированно распознал ручку (join, players, tick и т.д.)
+                req.target(target_sv);
+
                 send(api_handler_.HandleRequest(req));
                 return;
             }
