@@ -137,9 +137,8 @@ int main(int argc, const char* argv[]) {
     if (!db_url.empty()) {
         try {
             db = std::make_shared<database::Database>(db_url, 2);
-            db->InitializeStructure();
         } catch (const std::exception& ex) {
-            std::cerr << "Database initialization error: " << ex.what() << std::endl;
+            std::cerr << "Database пул ошибка создания: " << ex.what() << std::endl;
         }
     }
     // Считаем количество потоков заранее, чтобы передать в пул соединений БД

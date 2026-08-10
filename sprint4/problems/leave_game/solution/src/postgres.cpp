@@ -60,27 +60,39 @@ Database::Database(const std::string& db_url, size_t pool_capacity)
 }
 
 void Database::InitializeStructure() {
-    try {
-        auto conn_ptr = pool_.GetConnection();
-        pqxx::work tx(*conn_ptr);
+    // Статический флаг, чтобы не насиловать базу DDL-запросами на каждом тике
+    static bool structure_initialized = false;
+    if (structure_initialized) return;
 
-        tx.exec(R"(
-            CREATE TABLE IF NOT EXISTS retired_players (
-                id SERIAL PRIMARY KEY,
-                name VARCHAR(100) NOT NULL,
-                score INT NOT NULL,
-                play_time DOUBLE PRECISION NOT NULL
-            );
-        )");
+    // Делаем до 3 быстрых попыток подключиться, если БД еще просыпается в Docker
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        try {
+            auto conn_ptr = pool_.GetConnection();
+            pqxx::work tx(*conn_ptr);
 
-        tx.exec(R"(
-            CREATE INDEX IF NOT EXISTS idx_retired_players_score_time_name
-            ON retired_players (score DESC, play_time ASC, name ASC);
-        )");
+            tx.exec(R"(
+                CREATE TABLE IF NOT EXISTS retired_players (
+                    id SERIAL PRIMARY KEY,
+                    name VARCHAR(100) NOT NULL,
+                    score INT NOT NULL,
+                    play_time DOUBLE PRECISION NOT NULL
+                );
+            )");
 
-        tx.commit();
-    } catch (const std::exception& ex) {
-        std::cerr << "[DB Init Warning] Structure initialization postponed: " << ex.what() << std::endl;
+            tx.exec(R"(
+                CREATE INDEX IF NOT EXISTS idx_retired_players_score_time_name
+                ON retired_players (score DESC, play_time ASC, name ASC);
+            )");
+
+            tx.commit();
+            structure_initialized = true; // Успешно создано!
+            return;
+        } catch (const std::exception& ex) {
+            std::cerr << "[DB Init] Попытка " << attempt + 1 << " не удалась: " << ex.what() << std::endl;
+            if (attempt < 2) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Короткая пауза перед повтором
+            }
+        }
     }
 }
 
