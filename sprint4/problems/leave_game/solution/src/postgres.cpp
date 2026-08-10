@@ -12,11 +12,20 @@ ConnectionPtr::~ConnectionPtr() {
 
 // --- ConnectionPool Реализация ---
 ConnectionPool::ConnectionPool(size_t capacity, std::string db_url)
-    : capacity_(capacity), db_url_(std::move(db_url))
+    : capacity_(capacity)
 {
-    // Заполняем пул соединениями сразу при старте
+    // 1. Корректируем схему во временной переменной
+    std::string final_url = std::move(db_url);
+    if (final_url.find("postgres://") == 0) {
+        final_url.insert(8, "ql");
+    }
+
+    // 2. Явно присваиваем полю класса
+    this->db_url_ = final_url;
+
+    // 3. Наполняем пул соединений
     for (size_t i = 0; i < capacity_; ++i) {
-        pool_.push(std::make_shared<pqxx::connection>(db_url_));
+        pool_.push(std::make_shared<pqxx::connection>(this->db_url_));
     }
 }
 

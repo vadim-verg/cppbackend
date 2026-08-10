@@ -46,8 +46,10 @@ std::optional<Args> ParseCommandLine(int argc, const char* const argv[]) {
     desc.add_options()
         ("help,h", "produce help message")
         ("tick-period,t", po::value<uint64_t>(), "set tick period")
-        ("config-file,c", po::value<std::string>(&args.config_file), "set config file path")
-        ("www-root,w", po::value<std::string>(&args.www_root), "set static files root")
+        // Добавляем default_value для config-file:
+        ("config-file,c", po::value<std::string>(&args.config_file)->default_value("config.json"), "set config file path")
+        // Добавляем default_value для www-root:
+        ("www-root,w", po::value<std::string>(&args.www_root)->default_value("static"), "set static files root")
         ("randomize-spawn-points", po::bool_switch(&args.randomize_spawn_points), "spawn dogs at random positions")
         ("state-file", po::value<std::string>(), "file to save/restore game state")
         ("save-state-period", po::value<uint32_t>(), "auto-save period in milliseconds");
@@ -67,12 +69,12 @@ std::optional<Args> ParseCommandLine(int argc, const char* const argv[]) {
         help_args.config_file = "HELP";
         return help_args;
     }
-
+/*
     if (!vm.count("config-file") || !vm.count("www-root")) {
         std::cout << desc << std::endl;
         return std::nullopt;
     }
-
+*/
     if (vm.count("tick-period")) {
         args.tick_period = vm["tick-period"].as<uint64_t>();
     }
