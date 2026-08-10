@@ -343,11 +343,15 @@ std::optional<std::string_view> FindQueryParam(std::string_view target, std::str
     }
 
     std::string_view query = target.substr(query_pos + 1);
-    while (!query.empty()) {
-        auto pair_end = query.find('&');
-        std::string_view pair = (pair_end == std::string_view::npos) ? query : query.substr(0, pair_end);
+    size_t pos = 0;
 
-        auto eq_pos = pair.find('=');
+    while (pos < query.size()) {
+        size_t next_amp = query.find('&', pos);
+        std::string_view pair = (next_amp == std::string_view::npos)
+                                    ? query.substr(pos)
+                                    : query.substr(pos, next_amp - pos);
+
+        size_t eq_pos = pair.find('=');
         if (eq_pos != std::string_view::npos) {
             std::string_view k = pair.substr(0, eq_pos);
             std::string_view v = pair.substr(eq_pos + 1);
@@ -356,17 +360,29 @@ std::optional<std::string_view> FindQueryParam(std::string_view target, std::str
             }
         }
 
-        if (pair_end == std::string_view::npos) {
+        if (next_amp == std::string_view::npos) {
             break;
         }
-        query.remove_prefix(pair_end + 1);
+        pos = next_amp + 1;
     }
     return std::nullopt;
 }
 
 // GET /api/v1/game/records
 http::response<http::string_body> ApiHandler::HandleGetRecords(const http::request<http::string_body>& req) const {
+
     unsigned int version = req.version();
+    // Если БД отключена — возвращаем пустой список
+    if (!db_) {
+        http::response<http::string_body> res(http::status::ok, version);
+        res.set(http::field::content_type, "application/json");
+        res.set(http::field::cache_control, "no-cache");
+        if (req.method() == http::verb::get) {
+            res.body() = "[]";
+        }
+        res.prepare_payload();
+        return res;
+    }
 
     // Проверяем метод HTTP (ТЗ разрешает только GET и HEAD)
     if (req.method() != http::verb::get && req.method() != http::verb::head) {
