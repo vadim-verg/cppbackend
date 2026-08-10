@@ -367,7 +367,7 @@ std::optional<std::string_view> FindQueryParam(std::string_view target, std::str
     }
     return std::nullopt;
 }
-
+/*
 // GET /api/v1/game/records
 http::response<http::string_body> ApiHandler::HandleGetRecords(const http::request<http::string_body>& req) const {
 
@@ -450,5 +450,5 @@ http::response<http::string_body> ApiHandler::HandleGetRecords(const http::reque
     res.prepare_payload();
     return res;
 }
-
+*/
 } // namespace http_handler
