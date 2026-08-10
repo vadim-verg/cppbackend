@@ -63,23 +63,49 @@ http::response<http::string_body> ApiHandler::HandleJoinGame(const http::request
     std::string map_id;
 
     try {
+        // Защита от пустого тела
+        if (req.body().empty()) {
+            return MakeErrorResponse(http::status::bad_request, "invalidArgument", "Empty body", version);
+        }
+
         auto json_doc = boost::json::parse(req.body());
+        if (!json_doc.is_object()) {
+            return MakeErrorResponse(http::status::bad_request, "invalidArgument", "Malformed JSON", version);
+        }
+
         const auto& json_obj = json_doc.as_object();
-        user_name = boost::json::value_to<std::string>(json_obj.at("userName"));
-        map_id = boost::json::value_to<std::string>(json_obj.at("mapId"));
+
+        // Безопасно извлекаем userName
+        if (json_obj.contains("userName")) {
+            const auto& val = json_obj.at("userName");
+            if (val.is_string()) {
+                user_name = std::string(val.as_string());
+            }
+        }
+
+        // Безопасно извлекаем mapId
+        if (json_obj.contains("mapId")) {
+            const auto& val = json_obj.at("mapId");
+            if (val.is_string()) {
+                map_id = std::string(val.as_string());
+            }
+        }
     } catch (const std::exception& e) {
         return MakeErrorResponse(http::status::bad_request, "invalidArgument", "Join game request parse error", version);
     }
 
+    // ТЗ Практикума: имя пользователя не должно быть пустым
     if (user_name.empty()) {
         return MakeErrorResponse(http::status::bad_request, "invalidArgument", "Invalid name", version);
     }
 
+    // ТЗ Практикума: если карта не найдена, возвращаем 404
     auto join_result = app_.JoinGame(user_name, map_id);
     if (!join_result) {
         return MakeErrorResponse(http::status::not_found, "mapNotFound", "Map not found", version);
     }
 
+    // Формируем успешный ответ
     http::response<http::string_body> res(http::status::ok, version);
     res.set(http::field::content_type, "application/json");
     res.set(http::field::cache_control, "no-cache");
