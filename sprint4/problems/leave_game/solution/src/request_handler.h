@@ -117,7 +117,7 @@ public:
                 return;
             }
 
-            // Наша изолированная ручка рекордов из базы данных
+            // Изолированная ручка рекордов
             if (target_sv == "/api/v1/game/records") {
                 if (req.method() != http::verb::get && req.method() != http::verb::head) {
                     send(MakeMethodNotAllowedResponse(req));
@@ -127,14 +127,13 @@ public:
                 return;
             }
 
-            // Полностью оригинальное игровое API Практикума (работает как раньше)
+            // === ВОЗВРАЩАЕМ ОРИГИНАЛЬНЫЙ ВЫЗОВ В ТОЧНОСТИ КАК БЫЛО ===
+            // Никаких модификаций req.target(), передаем исходный req в первозданном виде
             if (target_sv.starts_with("/api/v1/game/")) {
-                // Корректно приводим к типу boost::beast::string_view для Boost 1.78.0
-                req.target(boost::beast::string_view{target_sv.data(), target_sv.size()});
-
                 send(api_handler_.HandleRequest(req));
                 return;
             }
+            // ========================================================
 
             send(MakeBadRequestResponse(req));
             return;
