@@ -115,7 +115,9 @@ bool Application::MovePlayer(const std::string& token, const std::string& move_c
         dog_ptr->SetDirection(model::Direction::SOUTH);
     } else if (move_cmd.empty()) {
         dog_ptr->SetSpeed({0.0, 0.0});
+        dog_ptr->SetIdleStarted(true);
     } else {
+        dog_ptr->SetIdleStarted(false);
         return false;
     }
 
@@ -439,6 +441,7 @@ void Application::UpdateDogPosition(model::Dog& dog, const model::Map& map, doub
 
     if (hit_boundary) {
         dog.SetSpeed({0.0, 0.0});
+        dog.SetIdleStarted(true);
     }
 
     dog.SetPosition(p_target);

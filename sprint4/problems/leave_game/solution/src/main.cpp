@@ -140,7 +140,6 @@ int main(int argc, const char* argv[]) {
             db->InitializeStructure();
         } catch (const std::exception& ex) {
             std::cerr << "Database initialization error: " << ex.what() << std::endl;
-            // Не падаем, даем серверу шанс запуститься для тестов без БД
         }
     }
     // Считаем количество потоков заранее, чтобы передать в пул соединений БД

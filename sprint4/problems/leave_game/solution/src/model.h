@@ -417,11 +417,10 @@ public:
     void UpdateTime(double delta_seconds) {
         play_time_ += delta_seconds;
 
-        // Если собака стоит (скорость по обеим осям равна 0) — увеличиваем время бездействия
-        if (speed_.ux == 0.0 && speed_.uy == 0.0) {
+        // Копим время бездействия, только если оно принудительно началось
+        if (is_idle_started_ && speed_.ux == 0.0 && speed_.uy == 0.0) {
             idle_time_ += delta_seconds;
         } else {
-            // Если собака движется — сбрасываем время бездействия
             idle_time_ = 0.0;
         }
     }
@@ -439,6 +438,13 @@ public:
         idle_time_ = 0.0;
     }
 
+    void SetIdleStarted(bool started) noexcept {
+        is_idle_started_ = started;
+        if (!started) {
+            idle_time_ = 0.0;
+        }
+    }
+
 private:
     Id id_;
     std::string name_;
@@ -452,6 +458,7 @@ private:
 
     double play_time_ = 0.0;
     double idle_time_ = 0.0;
+    bool is_idle_started_ = false;
 };
 
 // Получение случайной координаты на случайной дороге карты
