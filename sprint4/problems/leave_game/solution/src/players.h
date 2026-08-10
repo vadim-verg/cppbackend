@@ -6,7 +6,7 @@
 #include <random>
 #include <optional>
 #include "model.h"
-#include "postgres.h"
+#include <boost/signals2.hpp>
 
 
 namespace app {
@@ -52,8 +52,14 @@ public:
         token_to_player_[token] = std::move(player);
     }
 
-    void RemoveToken(const std::string& token) {
-        token_to_player_.erase(token);
+    // Удалить токен игрока, когда он уходит на покой
+    void RemovePlayerToken(const std::shared_ptr<Player>& player) {
+        for (auto it = token_to_player_.begin(); it != token_to_player_.end(); ++it) {
+            if (it->second == player) {
+                token_to_player_.erase(it);
+                break;
+            }
+        }
     }
 
 private:
@@ -86,8 +92,9 @@ public:
 
     uint32_t GetNextIdInternal() const { return next_id_; }
 
-    void RemovePlayer(uint32_t id) {
-        players_.erase(id);
+    // Удалить игрока из общего списка по ID
+    void RemovePlayer(uint32_t player_id) {
+        players_.erase(player_id);
     }
 
 private:
@@ -103,10 +110,15 @@ struct JoinGameResult {
 
 class Application {
 public:
-    explicit Application(model::Game& game, std::shared_ptr<database::PostgresDatabase> db)
-        : game_(game)
-        , db_(std::move(db))
-    {}
+
+    // Сигнал передает: имя собаки, набранные очки, общее игровое время в секундах
+    using DogRetiredSignal = boost::signals2::signal<void(const std::string&, int, double)>;
+
+    // Объект сигнала, к которому подключится БД
+    DogRetiredSignal dog_retired_signal;
+
+    explicit Application(model::Game& game)
+        : game_(game) {}
 
     // Модуляция игрового времени
     void Tick(double delta_time_seconds);
@@ -180,7 +192,6 @@ private:
     void UpdateDogPosition(model::Dog& dog, const model::Map& map, double delta_time_seconds);
 
     model::Game& game_;
-    std::shared_ptr<database::PostgresDatabase> db_;
     PlayerManager player_manager_;
     PlayerTokens player_tokens_;
 

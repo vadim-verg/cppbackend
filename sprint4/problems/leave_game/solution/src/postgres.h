@@ -1,46 +1,81 @@
 #pragma once
 #include <pqxx/pqxx>
 #include <string>
-#include <vector>
 #include <memory>
 #include <mutex>
 #include <queue>
 #include <condition_variable>
-#include "model.h"
 
 namespace database {
 
-class PostgresDatabase {
+// Умная обертка RAII для автоматического возврата соединения в пул
+class ConnectionPool;
+
+struct PlayerRecord {
+    std::string name;
+    int score = 0;
+    double play_time = 0.0;
+};
+
+class ConnectionPtr {
 public:
-    // Умный указатель, который автоматически возвращает соединение в пул при уничтожении
-    using ConnectionPtr = std::shared_ptr<pqxx::connection>;
+    ConnectionPtr(std::shared_ptr<pqxx::connection> conn, ConnectionPool& pool)
+        : conn_(std::move(conn)), pool_(pool) {}
 
-    explicit PostgresDatabase(const std::string& db_url)
-        : connection_string_(db_url) {}
+    ConnectionPtr(const ConnectionPtr&) = delete;
+    ConnectionPtr& operator=(const ConnectionPtr&) = delete;
 
-    ~PostgresDatabase() = default;
+    ConnectionPtr(ConnectionPtr&&) = default;
+    ConnectionPtr& operator=(ConnectionPtr&&) = default;
 
-    // Основные методы работы с рекордами
-    void SaveRecord(const model::RetiredDogInfo& record);
-    std::vector<model::RetiredDogInfo> GetRecords(size_t start, size_t max_items);
+    ~ConnectionPtr();
 
-    // Метод получения безопасного соединения (вынесен в public для возможности использования в других слоях)
-    ConnectionPtr GetConnection();
+    pqxx::connection& operator*() const noexcept { return *conn_; }
+    pqxx::connection* operator->() const noexcept { return conn_.get(); }
 
 private:
-    std::string connection_string_;
+    std::shared_ptr<pqxx::connection> conn_;
+    ConnectionPool& pool_;
+};
 
-    std::mutex pool_mutex_;
-    std::condition_variable pool_cv_;
-    std::queue<std::unique_ptr<pqxx::connection>> pool_;
-    size_t pool_capacity_ = 50; // Увеличено до 50 для выдерживания массовых тестов на 150 игроков
-    size_t created_connections_ = 0;
+// Потокобезопасный пул соединений
+class ConnectionPool {
+public:
+    using PoolType = std::queue<std::shared_ptr<pqxx::connection>>;
 
-    // Внутренний метод возврата сырого указателя в пул
-    void ReturnConnection(std::unique_ptr<pqxx::connection> conn);
+    ConnectionPool(size_t capacity, std::string db_url);
 
-    // Метод инициализации схемы БД
-    void EnsureTableExists(pqxx::work& tr);
+    // Получить свободное соединение (блокирует поток, если все заняты)
+    ConnectionPtr GetConnection();
+
+    // Возвращает соединение обратно в очередь пула
+    void ReturnConnection(std::shared_ptr<pqxx::connection> conn);
+
+private:
+    size_t capacity_;
+    std::string db_url_;
+    PoolType pool_;
+    std::mutex mutex_;
+    std::condition_variable cv_;
+};
+
+// Класс управления базой данных
+class Database {
+public:
+    explicit Database(const std::string& db_url, size_t pool_capacity);
+
+    // Метод инициализации структуры (создание таблицы)
+    void InitializeStructure();
+
+    // Доступ к пулу соединений
+    ConnectionPool& GetPool() { return pool_; }
+
+    // Получить отсортированный список рекордов с пагинацией
+    std::vector<PlayerRecord> GetRecords(int start, int max_items);
+
+private:
+    std::string db_url_;
+    ConnectionPool pool_;
 };
 
 } // namespace database

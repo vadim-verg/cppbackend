@@ -10,7 +10,6 @@
 #include "api_handler.h"
 #include "players.h"
 #include "loot_provider.h"
-#include "postgres.h"
 
 namespace http_handler {
 namespace beast = boost::beast;
@@ -78,12 +77,11 @@ public:
                             app::Application& app,
                             const app::LootInfoProvider& loot_info,
                             std::shared_ptr<StateManager> state_manager,
-                            std::shared_ptr<database::PostgresDatabase> db)
+                            std::shared_ptr<database::Database> db)
         : game_{game}
         , static_path_{std::move(static_path)}
-        , api_handler_{app, state_manager}
-        , loot_info_{loot_info}
-        , db_{std::move(db)} {}
+        , api_handler_{app, state_manager, db}
+        , loot_info_{loot_info} {}
 
     RequestHandler(const RequestHandler&) = delete;
     RequestHandler& operator=(const RequestHandler&) = delete;
@@ -91,9 +89,7 @@ public:
     template <typename Body, typename Allocator, typename Send>
     void operator()(http::request<Body, http::basic_fields<Allocator>>&& req, Send&& send) {
 
-        // Сохраняем полную строку таргета до обрезания для парсинга query-параметров рекордов
-        std::string_view full_target{req.target().data(), req.target().size()};
-        std::string_view target = full_target;
+        std::string_view target{req.target().data(), req.target().size()};
 
         if (auto query_pos = target.find('?'); query_pos != std::string_view::npos) {
             target = target.substr(0, query_pos);
@@ -103,94 +99,6 @@ public:
         std::string_view target_sv = decoded_target;
 
         if (target_sv.starts_with("/api/")) {
-
-            // Добавляем обработку эндпоинта /api/v1/game/records
-            if (target_sv == "/api/v1/game/records") {
-                if (req.method() != http::verb::get && req.method() != http::verb::head) {
-                    send(MakeMethodNotAllowedResponse(req));
-                    return;
-                }
-
-                // Значения по умолчанию согласно ТЗ диплома
-                int start_idx = 0;
-                int max_items = 100;
-
-                // Находим начало параметров (после знака '?')
-                if (size_t query_pos = full_target.find('?'); query_pos != std::string_view::npos) {
-                    std::string_view query = full_target.substr(query_pos + 1);
-
-                    // Потокобезопасная и отказоустойчивая лямбда-функция для парсинга параметров
-                    auto get_param_value = [](std::string_view q, std::string_view key) -> std::optional<int> {
-                        size_t k_pos = q.find(key);
-                        if (k_pos == std::string_view::npos) {
-                            return std::nullopt;
-                        }
-
-                        // Вычисляем, где начинается само значение (после знака '=')
-                        size_t val_pos = k_pos + key.size();
-                        // Ищем конец параметра (до следующего '&' или до конца строки)
-                        size_t amp_pos = q.find('&', val_pos);
-
-                        std::string_view val_sv = (amp_pos == std::string_view::npos)
-                                                      ? q.substr(val_pos)
-                                                      : q.substr(val_pos, amp_pos - val_pos);
-
-                        if (val_sv.empty()) {
-                            return std::nullopt;
-                        }
-
-                        try {
-                            // Преобразуем в строку и безопасно конвертируем в int
-                            return std::stoi(std::string(val_sv));
-                        } catch (...) {
-                            // Если в параметре пришел мусор (например, ?start=abc),
-                            // игнорируем его и не даем серверу упасть
-                            return std::nullopt;
-                        }
-                    };
-
-                    // Ищем параметры с учетом знака '='
-                    if (auto s_opt = get_param_value(query, "start=")) {
-                        start_idx = std::max(0, *s_opt);
-                    }
-
-                    if (auto m_opt = get_param_value(query, "maxItems=")) {
-                        // Строгое требование ТЗ: если maxItems > 100, возвращаем ошибку 400 Bad Request
-                        if (*m_opt > 100) {
-                            boost::json::object error_obj;
-                            error_obj["code"] = "invalidArgument";
-                            error_obj["message"] = "maxItems value cannot exceed 100";
-
-                            send(MakeBaseResponse(req, http::status::bad_request, boost::json::serialize(error_obj)));
-                            return;
-                        }
-                        max_items = std::max(0, *m_opt);
-                    }
-                }
-
-                // Запрашиваем рекорды из PostgreSQL (благодаря пулу коннектов крэша не будет)
-                auto records = db_->GetRecords(start_idx, max_items);
-
-                boost::json::array json_records;
-                for (const auto& record : records) {
-                    boost::json::object obj;
-                    obj["name"] = record.name;
-                    obj["score"] = record.score;
-                    obj["playTime"] = record.play_time;
-                    json_records.push_back(std::move(obj));
-                }
-
-                // Формируем корректный ответ для GET и HEAD методов
-                if (req.method() == http::verb::get) {
-                    send(MakeBaseResponse(req, http::status::ok, boost::json::serialize(json_records)));
-                } else {
-                    // Для метода HEAD отправляем только заголовки с точным Content-Length
-                    auto res = MakeBaseResponse(req, http::status::ok, "");
-                    res.set(http::field::content_length, std::to_string(boost::json::serialize(json_records).size()));
-                    send(std::move(res));
-                }
-                return;
-            }
 
             if (target_sv == Endpoints::Maps) {
                 if (req.method() != http::verb::get && req.method() != http::verb::head) {
@@ -207,6 +115,20 @@ public:
                     return;
                 }
                 send(MakeMapResponse(req, map_id));
+                return;
+            }
+
+            if (target_sv == "/api/v1/game/records") {
+                if (req.method() != http::verb::get && req.method() != http::verb::head) {
+                    send(MakeMethodNotAllowedResponse(req));
+                    return;
+                }
+                send(api_handler_.HandleGetRecords(req));
+                return;
+            }
+
+            if (target_sv.starts_with("/api/v1/game/")) {
+                send(api_handler_.HandleRequest(req));
                 return;
             }
 
@@ -252,7 +174,6 @@ private:
     std::filesystem::path static_path_;
     ApiHandler api_handler_;
     const app::LootInfoProvider& loot_info_;
-    std::shared_ptr<database::PostgresDatabase> db_;
 
     template <typename Body, typename Allocator>
     static http::response<http::string_body> MakeBaseResponse(

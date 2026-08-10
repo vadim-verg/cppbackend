@@ -35,25 +35,27 @@ std::optional<JoinGameResult> Application::JoinGame(const std::string& user_name
         return std::nullopt;
     }
 
-    model::Point2D start_pos{0.0, 0.0};
+    model::Point2D start_pos;
     if (randomize_spawn_) {
+        // Если рандом включен — используем генерацию случайной позиции
         start_pos = model::CalculateRandomDogPosition(*map_ptr);
     } else {
+        // Если рандом выключен — берем координаты начала (x0, y0) первой дороги
         const auto& roads = map_ptr->GetRoads();
         if (!roads.empty()) {
             auto start_road = roads.at(0).GetStart();
             start_pos = {static_cast<double>(start_road.x), static_cast<double>(start_road.y)};
+        } else {
+            start_pos = {0.0, 0.0}; // если дорог на карте нет
         }
     }
 
     auto player = player_manager_.CreatePlayer(user_name, map_id);
 
-    // ИСПРАВЛЕНО: Присваиваем собаке вместимость рюкзака, заданную для этой карты по ТЗ Практикума!
     model::Dog::Id dog_id{player->GetId()};
     auto dog = std::make_shared<model::Dog>(dog_id, user_name, start_pos);
-    dog->SetBagCapacity(map_ptr->GetBagCapacity());
-
     player->SetDog(dog);
+
     std::string token = player_tokens_.AddPlayer(player);
 
     return JoinGameResult{token, player->GetId()};
@@ -168,13 +170,15 @@ public:
 
 void Application::Tick(double delta_time_seconds) {
     auto& mutable_game = const_cast<model::Game&>(game_);
-    double max_idle_time = game_.GetDogRetirementTime();
 
     std::unordered_map<std::string, std::vector<std::shared_ptr<model::Dog>>> map_to_dogs;
     std::unordered_map<uint32_t, model::Point2D> dog_start_positions;
+
+    // Вектор для сбора ID игроков, чьи собаки превысили таймаут бездействия
     std::vector<uint32_t> players_to_retire;
 
-    // 1. Двигаем собак и обновляем их счетчики времени / AFK
+    double retirement_timeout = game_.GetDogRetirementTime();
+
     for (const auto& [id, player] : player_manager_.GetPlayers()) {
         auto dog_ptr = player->GetDog();
         if (!dog_ptr) continue;
@@ -182,24 +186,23 @@ void Application::Tick(double delta_time_seconds) {
         auto map_ptr = game_.FindMap(model::Map::Id{player->GetMapId()});
         if (!map_ptr) continue;
 
-        dog_start_positions[dog_ptr->GetId().operator*()] = dog_ptr->GetPosition();
-
-        // Сначала двигаем
-        UpdateDogPosition(*dog_ptr, *map_ptr, delta_time_seconds);
-
-        // Накапливаем playTime и idleTime на основе текущей скорости
+        // 1. Обновляем игровое время собаки и время её бездействия
         dog_ptr->UpdateTime(delta_time_seconds);
 
-        // Проверяем, не пора ли псу на заслуженный отдых
-        if (dog_ptr->GetIdleTime() >= max_idle_time) {
-            players_to_retire.push_back(player->GetId());
-        } else {
-            // В симуляции коллизий участвуют только те, кто остается в игре
-            map_to_dogs[player->GetMapId()].push_back(dog_ptr);
+        // 2. Проверяем, не пора ли псу на заслуженный отдых
+        if (dog_ptr->GetIdleTime() >= retirement_timeout) {
+            players_to_retire.push_back(id);
+            continue; // Эту собаку больше не двигаем и коллизии для неё в этом тике не считаем
         }
+
+        dog_start_positions[dog_ptr->GetId().operator*()] = dog_ptr->GetPosition();
+
+        UpdateDogPosition(*dog_ptr, *map_ptr, delta_time_seconds);
+
+        map_to_dogs[player->GetMapId()].push_back(dog_ptr);
     }
 
-    // 2. Сбор коллизий отдельно для каждой карты (только для активных игроков)
+    // Сбор коллизий отдельно для каждой карты
     for (const auto& [map_id_str, dogs] : map_to_dogs) {
         model::Map::Id map_id{map_id_str};
         auto map_ptr = game_.FindMap(map_id);
@@ -284,44 +287,30 @@ void Application::Tick(double delta_time_seconds) {
         }
     }
 
-    // 3. Оформляем уход на покой для бездействующих игроков
-    for (uint32_t player_id : players_to_retire) {
-        auto player_ptr = player_manager_.GetPlayers().at(player_id);
-        auto dog_ptr = player_ptr->GetDog();
-
-        // Формируем структуру и сохраняем рекорд в PostgreSQL
-        model::RetiredDogInfo record{
-            .name = dog_ptr->GetName(),
-            .score = dog_ptr->GetScore(),
-            .play_time = dog_ptr->GetPlayTime()
-        };
-        db_->SaveRecord(record);
-
-        // Ищем токен игрока, чтобы аннулировать его
-        std::string target_token;
-        for (const auto& [token_str, p_ptr] : player_tokens_.GetTokenMap()) {
-            if (p_ptr->GetId() == player_id) {
-                target_token = token_str;
-                break;
-            }
-        }
-        if (!target_token.empty()) {
-            player_tokens_.RemoveToken(target_token);
-        }
-
-        // Обновляем количество собак на карте внутри модели
-        model::Map::Id map_id{player_ptr->GetMapId()};
-        mutable_game.SetDogCount(map_id, game_.GetDogCount(map_id) - 1);
-
-        // Полностью удаляем игрока из сессии
-        player_manager_.RemovePlayer(player_id);
-    }
-
-    // 4. Двигаем таймеры внутренней модели (генерация лута и т.д.)
     auto delta_ms = std::chrono::milliseconds(static_cast<long long>(delta_time_seconds * 1000.0));
     mutable_game.Tick(delta_ms);
 
-    // 5. Обработка автосохранения состояния
+    // 3. Отправляем неактивных собак на заслуженный отдых и удаляем их из игры
+    for (uint32_t player_id : players_to_retire) {
+        const auto& players = player_manager_.GetPlayers();
+        if (auto it = players.find(player_id); it != players.end()) {
+            auto player = it->second;
+            auto dog = player->GetDog();
+
+            if (dog) {
+                // Активируем сигнал: Наблюдатель (БД) поймает его и выполнит INSERT
+                dog_retired_signal(dog->GetName(), dog->GetScore(), dog->GetPlayTime());
+            }
+
+            // Аннулируем авторизационный токен
+            player_tokens_.RemovePlayerToken(player);
+
+            // Удаляем игрока из менеджера игроков
+            player_manager_.RemovePlayer(player_id);
+        }
+    }
+
+    // Сбрасываем флаг перед проверкой
     should_save_state_ = false;
 
     if (state_file_ && save_state_period_) {

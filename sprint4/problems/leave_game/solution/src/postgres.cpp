@@ -3,94 +3,54 @@
 
 namespace database {
 
-PostgresDatabase::ConnectionPtr PostgresDatabase::GetConnection() {
-    std::unique_lock<std::mutex> lock(pool_mutex_);
-
-    // Исправлено условие ожидания: поток засыпает только если пул пуст И лимит соединений уже исчерпан
-    pool_cv_.wait(lock, [this] {
-        return !pool_.empty() || created_connections_ < pool_capacity_;
-    });
-
-    std::unique_ptr<pqxx::connection> conn;
-
-    if (!pool_.empty()) {
-        conn = std::move(pool_.front());
-        pool_.pop();
-    } else {
-        try {
-            conn = std::make_unique<pqxx::connection>(connection_string_);
-            ++created_connections_;
-        } catch (const std::exception& e) {
-            std::cerr << "[DB Connection Error]: " << e.what() << std::endl;
-            throw; // Пробрасываем ошибку, чтобы сервер выдал 500, а не завис
-        }
+// --- ConnectionPtr Реализация ---
+ConnectionPtr::~ConnectionPtr() {
+    if (conn_) {
+        pool_.ReturnConnection(std::move(conn_));
     }
-
-    // Возвращаем shared_ptr. Лямбда-делетер перехватывает управление при уничтожении
-    return ConnectionPtr(conn.release(), [this](pqxx::connection* p) {
-        std::unique_ptr<pqxx::connection> to_return(p);
-        ReturnConnection(std::move(to_return));
-    });
 }
 
-void PostgresDatabase::ReturnConnection(std::unique_ptr<pqxx::connection> conn) {
-    if (!conn) return;
-    std::lock_guard<std::mutex> lock(pool_mutex_);
-    pool_.push(std::move(conn));
-    pool_cv_.notify_one(); // Пробуждаем один из ждущих потоков
-}
-
-void PostgresDatabase::SaveRecord(const model::RetiredDogInfo& record) {
-    // Автоматическое получение соединения
-    auto conn = GetConnection();
-
-    try {
-        pqxx::work tr(*conn);
-        EnsureTableExists(tr);
-
-        tr.exec_params(
-            "INSERT INTO retired_players (name, score, play_time) VALUES ($1, $2, $3);",
-            record.name, record.score, record.play_time
-            );
-        tr.commit();
-    } catch (const std::exception& e) {
-        std::cerr << "[DB Error] SaveRecord failed: " << e.what() << std::endl;
+// --- ConnectionPool Реализация ---
+ConnectionPool::ConnectionPool(size_t capacity, std::string db_url)
+    : capacity_(capacity), db_url_(std::move(db_url))
+{
+    // Заполняем пул соединениями сразу при старте
+    for (size_t i = 0; i < capacity_; ++i) {
+        pool_.push(std::make_shared<pqxx::connection>(db_url_));
     }
-    // Коннект автоматически возвращается в пул при выходе из области видимости функции
 }
 
-std::vector<model::RetiredDogInfo> PostgresDatabase::GetRecords(size_t start, size_t max_items) {
-    std::vector<model::RetiredDogInfo> result;
-    auto conn = GetConnection();
+ConnectionPtr ConnectionPool::GetConnection() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    // Ожидаем, пока в очереди появится хотя бы одно свободное соединение
+    cv_.wait(lock, [this] { return !pool_.empty(); });
 
-    try {
-        pqxx::work tr(*conn);
-        EnsureTableExists(tr);
+    auto conn = pool_.front();
+    pool_.pop();
+    return ConnectionPtr(std::move(conn), *this);
+}
 
-        // Используем явное приведение параметров string для exec_params
-        auto rows = tr.exec_params(
-            "SELECT name, score, play_time FROM retired_players ORDER BY score DESC, play_time ASC, name ASC LIMIT $1 OFFSET $2;",
-            std::to_string(max_items), std::to_string(start)
-            );
-
-        result.reserve(rows.size());
-        for (const auto& row : rows) {
-            model::RetiredDogInfo info;
-            info.name = row[0].as<std::string>();
-            info.score = row[1].as<int>();
-            info.play_time = row[2].as<double>();
-            result.push_back(std::move(info));
-        }
-        tr.commit();
-    } catch (const std::exception& e) {
-        std::cerr << "[DB Error] GetRecords failed: " << e.what() << std::endl;
+void ConnectionPool::ReturnConnection(std::shared_ptr<pqxx::connection> conn) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        pool_.push(std::move(conn));
     }
-
-    return result;
+    cv_.notify_one();
 }
 
-void PostgresDatabase::EnsureTableExists(pqxx::work& tr) {
-    tr.exec(R"(
+// --- Database Реализация ---
+Database::Database(const std::string& db_url, size_t pool_capacity)
+    : db_url_(db_url), pool_(pool_capacity, db_url)
+{
+}
+
+void Database::InitializeStructure() {
+    // Получаем безопасное соединение из только что созданного пула
+    auto conn_ptr = pool_.GetConnection();
+    pqxx::work tx(*conn_ptr);
+
+    // Создаем таблицу
+    tx.exec(R"(
         CREATE TABLE IF NOT EXISTS retired_players (
             id SERIAL PRIMARY KEY,
             name VARCHAR(100) NOT NULL,
@@ -98,10 +58,41 @@ void PostgresDatabase::EnsureTableExists(pqxx::work& tr) {
             play_time DOUBLE PRECISION NOT NULL
         );
     )");
-    tr.exec(R"(
-        CREATE INDEX IF NOT EXISTS idx_retired_players_sort
+
+    // Создаем составной индекс
+    tx.exec(R"(
+        CREATE INDEX IF NOT EXISTS idx_retired_players_score_time_name
         ON retired_players (score DESC, play_time ASC, name ASC);
     )");
+
+    tx.commit();
+}
+
+std::vector<PlayerRecord> Database::GetRecords(int start, int max_items) {
+    auto conn_ptr = pool_.GetConnection();
+    pqxx::read_transaction tx(*conn_ptr);
+
+    // SQL-запрос с сортировкой по ТЗ и лимитами
+    std::string query = R"(
+        SELECT name, score, play_time
+        FROM retired_players
+        ORDER BY score DESC, play_time ASC, name ASC
+        LIMIT )" + tx.quote(max_items) + " OFFSET " + tx.quote(start) + ";";
+
+    pqxx::result res = tx.exec(query);
+
+    std::vector<PlayerRecord> records;
+    records.reserve(res.size());
+
+    for (const auto& row : res) {
+        records.push_back({
+            row["name"].as<std::string>(),
+            row["score"].as<int>(),
+            row["play_time"].as<double>()
+        });
+    }
+
+    return records;
 }
 
 } // namespace database

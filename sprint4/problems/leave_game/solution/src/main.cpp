@@ -1,5 +1,3 @@
-// Final Release Version 1.1.2 - Clear Cache
-
 #include "sdk.h"
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/signal_set.hpp>
@@ -20,7 +18,9 @@
 #include "ticker.h"
 #include "state_manager.h"
 #include "players.h"
-//строка
+
+#include "postgres.h"
+#include <cstdlib>
 
 using namespace std::literals;
 
@@ -46,8 +46,8 @@ std::optional<Args> ParseCommandLine(int argc, const char* const argv[]) {
     desc.add_options()
         ("help,h", "produce help message")
         ("tick-period,t", po::value<uint64_t>(), "set tick period")
-        ("config-file,c", po::value<std::string>(&args.config_file)->default_value("config.json"), "set config file path")
-        ("www-root,w", po::value<std::string>(&args.www_root)->default_value("static"), "set static files root")
+        ("config-file,c", po::value<std::string>(&args.config_file), "set config file path")
+        ("www-root,w", po::value<std::string>(&args.www_root), "set static files root")
         ("randomize-spawn-points", po::bool_switch(&args.randomize_spawn_points), "spawn dogs at random positions")
         ("state-file", po::value<std::string>(), "file to save/restore game state")
         ("save-state-period", po::value<uint32_t>(), "auto-save period in milliseconds");
@@ -68,8 +68,10 @@ std::optional<Args> ParseCommandLine(int argc, const char* const argv[]) {
         return help_args;
     }
 
-    // ИСПРАВЛЕНО: Убрана жесткая проверка обязательного наличия флагов config-file и www-root.
-    // Вместо этого мы назначили им безопасные дефолтные значения ("config.json" и "static").
+    if (!vm.count("config-file") || !vm.count("www-root")) {
+        std::cout << desc << std::endl;
+        return std::nullopt;
+    }
 
     if (vm.count("tick-period")) {
         args.tick_period = vm["tick-period"].as<uint64_t>();
@@ -115,6 +117,14 @@ int main(int argc, const char* argv[]) {
         return EXIT_SUCCESS;
     }
 
+    // Читаем URL базы данных из переменных окружения (Требование ТЗ)
+    const char* db_url_env = std::getenv("GAME_DB_URL");
+    if (!db_url_env) {
+        std::cerr << "Error: GAME_DB_URL environment variable is not set" << std::endl;
+        return EXIT_FAILURE;
+    }
+    std::string db_url(db_url_env);
+
     // Обязательное сообщение для тестов практикума
     std::cout << "Server started" << std::endl << std::flush;
 
@@ -123,13 +133,25 @@ int main(int argc, const char* argv[]) {
 
     std::cout << "{\"message\": \"server started\", \"data\": {\"port\": 8080, \"address\": \"0.0.0.0\"}}" << std::endl;
 
+    // Считаем количество потоков заранее, чтобы передать в пул соединений БД
+    const unsigned num_threads = std::thread::hardware_concurrency();
+
+    // Инициализируем базу данных и автоматически создаем таблицу retired_players
+    std::shared_ptr<database::Database> db;
+    try {
+        db = std::make_shared<database::Database>(db_url, num_threads);
+        db->InitializeStructure();
+    } catch (const std::exception& ex) {
+        std::cerr << "Database initialization error: " << ex.what() << std::endl;
+        return EXIT_FAILURE;
+    }
+
     std::optional<json_loader::ParsedGameData> parsed_data_opt;
 
     try {
-        if (!args_opt->config_file.empty() && std::filesystem::exists(args_opt->config_file)) {
+        if (std::filesystem::exists(args_opt->config_file)) {
             parsed_data_opt = json_loader::LoadGame(args_opt->config_file);
         } else {
-            // Если файла нет, создаем дефолтную структуру, чтобы сервер не падал
             json_loader::ParsedGameData fallback;
             parsed_data_opt = std::move(fallback);
         }
@@ -142,17 +164,25 @@ int main(int argc, const char* argv[]) {
     model::Game& game = parsed_data_opt->game;
     const app::LootInfoProvider& loot_info = parsed_data_opt->loot_info;
 
-    // Перед инициализацией app::Application
-    const char* db_url_env = std::getenv("GAME_DB_URL");
-    if (!db_url_env) {
-        std::cerr << "GAME_DB_URL environment variable is missing" << std::endl;
-        return EXIT_FAILURE;
-    }
-    auto db = std::make_shared<database::PostgresDatabase>(db_url_env);
-
     try {
-        // Инициализируем прикладной слой с базой данных
-        app::Application app(game, db);
+        // Инициализируем прикладной слой
+        app::Application app(game);
+
+        // Подписываем базу данных на событие ухода собаки на покой
+        app.dog_retired_signal.connect([db](const std::string& name, int score, double play_time) {
+            try {
+                auto conn_ptr = db->GetPool().GetConnection();
+                pqxx::work tx(*conn_ptr);
+                tx.exec_params(
+                    "INSERT INTO retired_players (name, score, play_time) VALUES ($1, $2, $3);",
+                    name, score, play_time
+                    );
+                tx.commit();
+            } catch (const std::exception& ex) {
+                std::cerr << "Failed to save retired dog record: " << ex.what() << std::endl;
+            }
+        });
+
         app.SetSpawnRandomize(args_opt->randomize_spawn_points);
         if (args_opt->tick_period.has_value()) {
             app.SetAutomaticTicking(true);
@@ -205,7 +235,6 @@ int main(int argc, const char* argv[]) {
             ticker->Start();
         }
 
-        // ИСПРАВЛЕНО: Передаем указатель db последним аргументом в RequestHandler
         auto handler = std::make_shared<http_handler::RequestHandler>(
             game, std::filesystem::path(args_opt->www_root), app, loot_info, state_manager, db
             );

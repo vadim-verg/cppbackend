@@ -99,26 +99,21 @@ ParsedGameData LoadGame(const std::filesystem::path& json_path) {
     // Читаем глобальную дефолтную скорость из корня JSON
     double default_speed = 1.0;
     if (root_object.contains("defaultDogSpeed")) {
-        const auto& val = root_object.at("defaultDogSpeed");
-        if (val.is_double()) default_speed = val.as_double();
-        else if (val.is_int64()) default_speed = static_cast<double>(val.as_int64());
+        default_speed = GetDoubleValue(root_object.at("defaultDogSpeed"));
     }
     game.SetDefaultDogSpeed(default_speed);
 
-    // ИСПРАВЛЕНО: Безопасное чтение dogRetirementTime с поддержкой любого типа (int/double)
-    if (root_object.contains("dogRetirementTime")) {
-        const auto& val = root_object.at("dogRetirementTime");
-        if (val.is_double()) {
-            game.SetDogRetirementTime(val.as_double());
-        } else if (val.is_int64()) {
-            game.SetDogRetirementTime(static_cast<double>(val.as_int64()));
-        }
-    }
-
     size_t default_bag_capacity = 3;
     if (root_object.contains("defaultBagCapacity")) {
-        const auto& val = root_object.at("defaultBagCapacity");
-        if (val.is_int64()) default_bag_capacity = static_cast<size_t>(val.as_int64());
+        default_bag_capacity = static_cast<size_t>(root_object.at("defaultBagCapacity").as_int64());
+    }
+
+    // Читаем время бездействия пса до отправки на пенсию (в секундах)
+    if (root_object.contains("dogRetirementTime")) {
+        double retirement_time = GetDoubleValue(root_object.at("dogRetirementTime"));
+        game.SetDogRetirementTime(retirement_time);
+    } else {
+        game.SetDogRetirementTime(60.0); // Дефолт по ТЗ — 1 минута
     }
 
     if (root_object.contains("lootGeneratorConfig")) {
@@ -146,9 +141,7 @@ ParsedGameData LoadGame(const std::filesystem::path& json_path) {
 
             // Читаем индивидуальную скорость для конкретной карты.
             if (map_obj.contains("dogSpeed")) {
-                const auto& val = map_obj.at("dogSpeed");
-                if (val.is_double()) game_map.SetDogSpeed(val.as_double());
-                else if (val.is_int64()) game_map.SetDogSpeed(static_cast<double>(val.as_int64()));
+                game_map.SetDogSpeed(GetDoubleValue(map_obj.at("dogSpeed")));
             } else {
                 game_map.SetDogSpeed(default_speed);
             }

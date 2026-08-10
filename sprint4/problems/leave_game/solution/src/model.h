@@ -64,12 +64,6 @@ struct BagItem {
     unsigned type;
 };
 
-struct RetiredDogInfo {
-    std::string name;
-    int score = 0;
-    double play_time = 0.0;
-};
-
 class Road {
     struct HorizontalTag {
         explicit HorizontalTag() = default;
@@ -337,10 +331,12 @@ public:
         next_loot_id_[map_id] = id;
     }
 
-    void SetDogRetirementTime(double seconds) noexcept {
-        dog_retirement_time_ = seconds;
+    // Установить время выхода на пенсию (в секундах)
+    void SetDogRetirementTime(double time_seconds) noexcept {
+        dog_retirement_time_ = time_seconds;
     }
 
+    // Получить время выхода на пенсию (в секундах)
     double GetDogRetirementTime() const noexcept {
         return dog_retirement_time_;
     }
@@ -351,15 +347,13 @@ private:
 
     std::vector<Map> maps_;
     MapIdToIndex map_id_to_index_;
-
+    double dog_retirement_time_ = 60.0;
     double default_dog_speed_ = 1.0;
 
     std::chrono::milliseconds loot_period_{5000};
     double loot_probability_ = 0.5;
 
     DogCountCallback dog_count_cb_;
-
-    double dog_retirement_time_ = 60.0;
 
     // Генераторы лута для каждой карты
     mutable std::unordered_map<Map::Id, loot_gen::LootGenerator, MapIdHasher> map_generators_;
@@ -419,18 +413,31 @@ public:
     int GetScore() const noexcept { return score_; }
     void AddScore(int points) noexcept { score_ += points; }
 
+    // Метод обновления времени на игровом тике
     void UpdateTime(double delta_seconds) {
         play_time_ += delta_seconds;
+
+        // Если собака стоит (скорость по обеим осям равна 0) — увеличиваем время бездействия
         if (speed_.ux == 0.0 && speed_.uy == 0.0) {
             idle_time_ += delta_seconds;
         } else {
+            // Если собака движется — сбрасываем время бездействия
             idle_time_ = 0.0;
         }
     }
-    double GetPlayTime() const noexcept { return play_time_; }
-    double GetIdleTime() const noexcept { return idle_time_; }
-    void SetPlayTime(double t) { play_time_ = t; }
-    void SetIdleTime(double t) { idle_time_ = t; }
+
+    double GetPlayTime() const noexcept {
+        return play_time_;
+    }
+
+    double GetIdleTime() const noexcept {
+        return idle_time_;
+    }
+
+    // Принудительный сброс времени бездействия при подаче команды движения
+    void ResetIdleTime() noexcept {
+        idle_time_ = 0.0;
+    }
 
 private:
     Id id_;
