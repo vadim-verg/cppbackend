@@ -117,6 +117,7 @@ public:
                 return;
             }
 
+            // 1. НАША РУЧКА: Обрабатываем рекорды прямо здесь, используя исходный шаблонный req
             if (target_sv == "/api/v1/game/records") {
                 if (req.method() != http::verb::get && req.method() != http::verb::head) {
                     send(MakeMethodNotAllowedResponse(req));
@@ -126,13 +127,18 @@ public:
                 return;
             }
 
+            // 2. ИГРОВОЕ API ПРАКТИКУМА: Используем точное приведение типа к http::request<http::string_body>,
+            // чтобы сохранить req.body() в первозданном виде без потери JSON-данных
             if (target_sv.starts_with("/api/v1/game/")) {
-                send(api_handler_.HandleRequest(req));
-                return;
-            }
+                // Создаем явную копию с правильным типом, сохраняя заголовки и тело
+                http::request<http::string_body> string_req(req.method(), std::string(req.target()), req.version());
+                for (const auto& field : req) {
+                    string_req.set(field.name(), field.value());
+                }
+                string_req.body() = req.body();
+                string_req.prepare_payload();
 
-            if (target_sv.starts_with("/api/v1/game/")) {
-                send(api_handler_.HandleRequest(req));
+                send(api_handler_.HandleRequest(string_req));
                 return;
             }
 
