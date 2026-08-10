@@ -129,9 +129,8 @@ public:
 
             // Полностью оригинальное игровое API Практикума (работает как раньше)
             if (target_sv.starts_with("/api/v1/game/")) {
-                // Временно подменяем target на очищенный от параметров путь,
-                // чтобы ApiHandler гарантированно распознал ручку (join, players, tick и т.д.)
-                req.target(target_sv);
+                // Корректно приводим к типу boost::beast::string_view для Boost 1.78.0
+                req.target(boost::beast::string_view{target_sv.data(), target_sv.size()});
 
                 send(api_handler_.HandleRequest(req));
                 return;
