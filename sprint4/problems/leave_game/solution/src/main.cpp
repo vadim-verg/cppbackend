@@ -136,7 +136,7 @@ int main(int argc, const char* argv[]) {
     std::shared_ptr<database::Database> db = nullptr;
     if (!db_url.empty()) {
         try {
-            db = std::make_shared<database::Database>(db_url, 10);
+            db = std::make_shared<database::Database>(db_url, 2);
             db->InitializeStructure();
         } catch (const std::exception& ex) {
             std::cerr << "Database initialization error: " << ex.what() << std::endl;

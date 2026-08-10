@@ -14,25 +14,36 @@ ConnectionPtr::~ConnectionPtr() {
 ConnectionPool::ConnectionPool(size_t capacity, std::string db_url)
     : capacity_(capacity)
 {
-    // 1. Корректируем схему во временной переменной
     std::string final_url = std::move(db_url);
     if (final_url.find("postgres://") == 0) {
         final_url.insert(8, "ql");
     }
-
-    // 2. Явно присваиваем полю класса
     this->db_url_ = final_url;
 
-    // 3. Наполняем пул соединений
-    for (size_t i = 0; i < capacity_; ++i) {
-        pool_.push(std::make_shared<pqxx::connection>(this->db_url_));
+    // Пытаемся заполнить пул. Если база «лежит», не падаем, а попробуем открывать лениво
+    try {
+        for (size_t i = 0; i < capacity_; ++i) {
+            pool_.push(std::make_shared<pqxx::connection>(this->db_url_));
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "[Pool Warning] Could not pre-warm DB connections: " << e.what() << std::endl;
+        // Оставляем пул пустым, он наполнится лениво при вызовах, если база оживет
     }
 }
 
 ConnectionPtr ConnectionPool::GetConnection() {
     std::unique_lock<std::mutex> lock(mutex_);
-    // Ожидаем, пока в очереди появится хотя бы одно свободное соединение
-    cv_.wait(lock, [this] { return !pool_.empty(); });
+
+    // Если на старте база лежала и пул пуст — пробуем создать коннект прямо сейчас
+    if (pool_.empty()) {
+        try {
+            return ConnectionPtr(std::make_shared<pqxx::connection>(db_url_), *this);
+        } catch (...) {
+            // Если и сейчас не вышло — ждем по cv, как обычно
+        }
+    }
+
+    cv.wait(lock, [this] { return !pool_.empty(); });
 
     auto conn = pool_.front();
     pool_.pop();

@@ -169,7 +169,7 @@ public:
 };
 
 void Application::Tick(double delta_time_seconds) {
-    auto& mutable_game = const_cast<model::Game&>(game_);
+    auto& mutable_game = game_;
 
     std::unordered_map<std::string, std::vector<std::shared_ptr<model::Dog>>> map_to_dogs;
     std::unordered_map<uint32_t, model::Point2D> dog_start_positions;
