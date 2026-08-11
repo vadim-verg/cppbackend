@@ -60,6 +60,9 @@ std::optional<std::string> ApiHandler::TryExtractToken(const http::request<http:
 http::response<http::string_body> ApiHandler::HandleJoinGame(const http::request<http::string_body>& req) const {
     unsigned int version = req.version();
 
+    // === ЛОГ 1: Показывает, что запрос вообще прилетел в метод и что внутри тела ===
+    std::cerr << "[DEBUG JOIN] Method entered. Body content: '" << req.body() << "'" << std::endl << std::flush;
+
     if (req.method() != http::verb::post) {
         auto res = MakeErrorResponse(http::status::method_not_allowed, "invalidMethod", "Only POST method is expected", version);
         res.set(http::field::allow, "POST");
@@ -75,23 +78,26 @@ http::response<http::string_body> ApiHandler::HandleJoinGame(const http::request
         user_name = boost::json::value_to<std::string>(json_obj.at("userName"));
         map_id = boost::json::value_to<std::string>(json_obj.at("mapId"));
     } catch (const std::exception& e) {
-        // === ВСТАВЛЯЕМ ЭТОТ ЛОГ ===
-        std::cerr << "[CRITICAL JOIN ERROR] Parse failed. Body was: '" << req.body() << "'. Details: " << e.what() << std::endl << std::flush;
-        // ==========================
+        // === ЛОГ 2: Ошибка парсинга JSON ===
+        std::cerr << "[DEBUG JOIN] JSON Parse Exception: " << e.what() << std::endl << std::flush;
         return MakeErrorResponse(http::status::bad_request, "invalidArgument", "Join game request parse error", version);
     }
 
     if (user_name.empty()) {
+        // === ЛОГ 3: Пустое имя ===
+        std::cerr << "[DEBUG JOIN] User name is empty!" << std::endl << std::flush;
         return MakeErrorResponse(http::status::bad_request, "invalidArgument", "Invalid name", version);
     }
 
     auto join_result = app_.JoinGame(user_name, map_id);
     if (!join_result) {
-        // === ВСТАВЛЯЕМ ЭТОТ ЛОГ ===
-        std::cerr << "[CRITICAL JOIN ERROR] Map not found or JoinGame returned nullopt. Name: " << user_name << ", Map: " << map_id << std::endl << std::flush;
-        // ==========================
+        // === ЛОГ 4: Ошибка движка (карта не найдена или nullopt) ===
+        std::cerr << "[DEBUG JOIN] JoinGame returned nullopt for Name: '" << user_name << "', Map: '" << map_id << "'" << std::endl << std::flush;
         return MakeErrorResponse(http::status::not_found, "mapNotFound", "Map not found", version);
     }
+
+    // === ЛОГ 5: Успех ===
+    std::cerr << "[DEBUG JOIN] SUCCESS! Token generated." << std::endl << std::flush;
 
     http::response<http::string_body> res(http::status::ok, version);
     res.set(http::field::content_type, "application/json");
