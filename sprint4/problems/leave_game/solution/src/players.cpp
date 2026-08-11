@@ -175,25 +175,146 @@ public:
 void Application::Tick(double delta_time_seconds) {
     auto& mutable_game = game_;
     double retirement_timeout = game_.GetDogRetirementTime();
+
+    std::unordered_map<std::string, std::vector<std::shared_ptr<model::Dog>>> map_to_dogs;
+    std::unordered_map<uint32_t, model::Point2D> dog_start_positions;
+
+    // Вектор для сбора ID игроков, чьи собаки превысили таймаут бездействия
     std::vector<uint32_t> players_to_retire;
 
     // ======================================================================
-    // ШАГ 1. СНАЧАЛА ОБНОВЛЯЕМ ТАЙМЕРЫ И ВЫЯВЛЯЕМ ТЕХ, КТО УХОДИТ НА ПОКОЙ
+    // ШАГ 1. СНАЧАЛА ОБНОВЛЯЕМ КООРДИНАТЫ (Скорость может упасть у стен!)
     // ======================================================================
     for (const auto& [id, player] : player_manager_.GetPlayers()) {
         auto dog_ptr = player->GetDog();
         if (!dog_ptr) continue;
 
-        // Метод должен обновлять play_time всегда, а idle_time — только если скорость == 0
+        auto map_ptr = game_.FindMap(model::Map::Id{player->GetMapId()});
+        if (!map_ptr) continue;
+
+        // Запоминаем стартовую позицию перед шагом для детектора коллизий
+        dog_start_positions[dog_ptr->GetId().operator*()] = dog_ptr->GetPosition();
+
+        // Физическое движение пса. Если упрётся в границу — скорость сбросится в {0.0, 0.0}
+        UpdateDogPosition(*dog_ptr, *map_ptr, delta_time_seconds);
+
+        // Группируем собак по картам для корректного сбора лута
+        map_to_dogs[player->GetMapId()].push_back(dog_ptr);
+    }
+
+    // ======================================================================
+    // ШАГ 2. ОБНОВЛЯЕМ ТАЙМЕРЫ НА ОСНОВЕ ФИНАЛЬНОЙ СКОРОСТИ И НАХОДИМ ПЕНСИОНЕРОВ
+    // ======================================================================
+    for (const auto& [id, player] : player_manager_.GetPlayers()) {
+        auto dog_ptr = player->GetDog();
+        if (!dog_ptr) continue;
+
+        // Внутри UpdateTime проверяется скорость после физического сдвига
         dog_ptr->UpdateTime(delta_time_seconds);
 
+        // Проверяем таймаут ухода на пенсию (только если параметр > 0 по ТЗ)
         if (retirement_timeout > 0.0 && dog_ptr->GetIdleTime() >= retirement_timeout) {
             players_to_retire.push_back(id);
         }
     }
 
     // ======================================================================
-    // ШАГ 2. ФИЗИЧЕСКОЕ УДАЛЕНИЕ ИЗ ИГРЫ И ОТПРАВКА В БАЗУ ДАННЫХ
+    // ШАГ 3. СБОР КОЛЛИЗИЙ И СДАЧА ЛУТА НА БАЗЫ
+    // ======================================================================
+    for (const auto& [map_id_str, dogs] : map_to_dogs) {
+        model::Map::Id map_id{map_id_str};
+        auto map_ptr = game_.FindMap(map_id);
+        if (!map_ptr) continue;
+
+        GameItemGathererProvider provider;
+
+        // Заполняем сборщиков (собак)
+        for (const auto& dog_ptr : dogs) {
+            model::Point2D start_pos = dog_start_positions[dog_ptr->GetId().operator*()];
+            model::Point2D end_pos = dog_ptr->GetPosition();
+
+            provider.gatherers.push_back(collision_detector::Gatherer{
+                .start_pos = {start_pos.x, start_pos.y},
+                .end_pos = {end_pos.x, end_pos.y},
+                .width = 0.3 // ПОЛОВИНА ШИРИНЫ ИГРОКА (0.6 / 2)
+            });
+            provider.dog_ptrs.push_back(dog_ptr);
+        }
+
+        // Заполняем разбросанные предметы (Lost Objects)
+        const auto& lost_objects = game_.GetLostObjects(map_id);
+        for (const auto& [obj_id, obj] : lost_objects) {
+            provider.items.push_back(collision_detector::Item{
+                .position = {obj.pos.x, obj.pos.y},
+                .width = 0.0 // ШИРИНA ПРЕДМЕТА ПО ТЗ
+            });
+            provider.item_infos.push_back(ProviderItemInfo{
+                .type = ProviderItemType::LOST_OBJECT,
+                .id = obj_id,
+                .office_idx = 0
+            });
+        }
+
+        // Заполняем базы (Offices)
+        const auto& offices = map_ptr->GetOffices();
+        for (size_t idx = 0; idx < offices.size(); ++idx) {
+            auto office_pos = offices[idx].GetPosition();
+            provider.items.push_back(collision_detector::Item{
+                .position = {static_cast<double>(office_pos.x), static_cast<double>(office_pos.y)},
+                .width = 0.25 // ПОЛОВИНА ШИРИНЫ БАЗЫ (0.5 / 2)
+            });
+            provider.item_infos.push_back(ProviderItemInfo{
+                .type = ProviderItemType::OFFICE,
+                .id = 0,
+                .office_idx = idx
+            });
+        }
+
+        // Просчитываем пересечения отрезков перемещения
+        if (!provider.gatherers.empty() && !provider.items.empty()) {
+            auto events = collision_detector::FindGatherEvents(provider);
+
+            std::unordered_set<unsigned> collected_in_tick;
+
+            for (const auto& event : events) {
+                auto dog_ptr = provider.dog_ptrs.at(event.gatherer_id);
+                const auto& item_info = provider.item_infos.at(event.item_id);
+
+                if (item_info.type == ProviderItemType::LOST_OBJECT) {
+                    if (collected_in_tick.contains(item_info.id) || dog_ptr->IsBagFull()) {
+                        continue;
+                    }
+
+                    unsigned obj_id = item_info.id;
+                    if (lost_objects.contains(obj_id)) {
+                        unsigned obj_type = lost_objects.at(obj_id).type;
+
+                        if (dog_ptr->AddToBag(model::BagItem{.id = obj_id, .type = obj_type})) {
+                            collected_in_tick.insert(obj_id);
+                            mutable_game.RemoveLostObject(map_id, obj_id);
+                        }
+                    }
+                }
+                else if (item_info.type == ProviderItemType::OFFICE) {
+                    const auto& bag = dog_ptr->GetBag();
+                    if (!bag.empty()) {
+                        for (const auto& bag_item : bag) {
+                            int item_points = map_ptr->GetLootValue(bag_item.type);
+                            dog_ptr->AddScore(item_points);
+                        }
+                        dog_ptr->ClearBag();
+                    }
+                }
+            }
+        }
+    }
+
+    // Передаем дельту времени в модель игры для генератора лута
+    auto delta_ms = std::chrono::milliseconds(static_cast<long long>(delta_time_seconds * 1000.0));
+    mutable_game.Tick(delta_ms);
+
+    // ======================================================================
+    // ШАГ 4. УДАЛЕНИЕ ИГРОКОВ, УШЕДШИХ НА ПОКОЙ, И СОХРАНЕНИЕ В ПОСТГРЕС
     // ======================================================================
     for (uint32_t player_id : players_to_retire) {
         const auto& players = player_manager_.GetPlayers();
@@ -202,58 +323,30 @@ void Application::Tick(double delta_time_seconds) {
             auto dog = player->GetDog();
 
             if (dog) {
-                // Вызываем наш проверенный сигнал — данные летят прямо в postgres.cpp
+                // Вызываем сигнал рекордов — лямбда в main.cpp сделает INSERT в retired_players
                 dog_retired_signal(dog->GetName(), dog->GetScore(), dog->GetPlayTime());
 
-                // Синхронизация счетчиков и очистка физического объекта из Game
+                // Синхронизируем счетчик живых собак в модели игры
                 model::Map::Id map_id{player->GetMapId()};
                 size_t current_count = mutable_game.GetDogCount(map_id);
                 if (current_count > 0) {
                     mutable_game.SetDogCount(map_id, current_count - 1);
                 }
-
-                // Если в модели Game есть контейнер собак — обязательно удалите её оттуда:
-                // mutable_game.RemoveDog(map_id, dog->GetId());
             }
 
-            // Аннулируем токен (теперь GET /state вернет 401 Unauthorized)
+            // Аннулируем авторизационный токен (теперь ручка /state отдаст 401 Unauthorized)
             player_tokens_.RemovePlayerToken(player);
 
-            // Удаляем игрока из менеджера
+            // Полностью удаляем игрока из памяти менеджера
             player_manager_.RemovePlayer(player_id);
         }
     }
 
     // ======================================================================
-    // ШАХ 3. ОБРАБОТКА ДВИЖЕНИЯ И КОЛЛИЗИЙ ТОЛЬКО ДЛЯ ОСТАВШИХСЯ ЖИВЫХ ИГРОКОВ
+    // ШАГ 5. АВТОМАТИЧЕСКОЕ СОХРАНЕНИЕ СОСТОЯНИЯ (STATE MANAGER)
     // ======================================================================
-    std::unordered_map<std::string, std::vector<std::shared_ptr<model::Dog>>> map_to_dogs;
-    std::unordered_map<uint32_t, model::Point2D> dog_start_positions;
-
-    for (const auto& [id, player] : player_manager_.GetPlayers()) {
-        auto dog_ptr = player->GetDog();
-        if (!dog_ptr) continue;
-
-        auto map_ptr = game_.FindMap(model::Map::Id{player->GetMapId()});
-        if (!map_ptr) continue;
-
-        dog_start_positions[dog_ptr->GetId().operator*()] = dog_ptr->GetPosition();
-
-        // Физический сдвиг координат и проверка границ дорог
-        UpdateDogPosition(*dog_ptr, *map_ptr, delta_time_seconds);
-
-        map_to_dogs[player->GetMapId()].push_back(dog_ptr);
-    }
-
-    // [Далее идет ваш неизмененный и полностью корректный код сбора лута на картах...]
-    // Сбор коллизий отдельно для каждой карты (GameItemGathererProvider)
-    // ...
-    // Inside collisions: ловим предметы, сдаем в офисы, вызываем mutable_game.Tick(delta_ms)
-    // ...
-
-    // Автосохранение состояния стейт-менеджером
-    auto delta_ms = std::chrono::milliseconds(static_cast<long long>(delta_time_seconds * 1000.0));
     should_save_state_ = false;
+
     if (state_file_ && save_state_period_) {
         time_since_last_save_ += delta_ms;
         if (time_since_last_save_ >= *save_state_period_) {
