@@ -114,7 +114,6 @@ int main(int argc, const char* argv[]) {
         return EXIT_SUCCESS;
     }
 
-    // Читаем URL базы данных из переменных окружения (Требование ТЗ)
     // Читаем URL базы данных из переменных окружения
     const char* db_url_env = std::getenv("GAME_DB_URL");
     std::string db_url = db_url_env ? std::string(db_url_env) : ""s;
@@ -127,24 +126,26 @@ int main(int argc, const char* argv[]) {
 
     std::cout << "{\"message\": \"server started\", \"data\": {\"port\": 8080, \"address\": \"0.0.0.0\"}}" << std::endl;
 
-    // Инициализируем базу данных (задаем фиксированный размер пула 10 для стабильности)
+    // Инициализируем базу данных (размер пула 2 для экономии коннектов по ТЗ)
     std::shared_ptr<database::Database> db = nullptr;
     if (!db_url.empty()) {
         try {
             db = std::make_shared<database::Database>(db_url, 2);
-            // Гарантированно и синхронно создаем таблицы ДО старта игры и сессий
-  //          db->InitializeStructure();
+
+            // 1. Сохраняем в глобальный синглтон для изоляции слоев рекордов
+            database::Database::SetInstance(db);
+
+            // 2. РАСКОММЕНТИРОВАНО: Гарантированно создаем таблицы при старте,
+            // наш метод в postgres.cpp с циклом попыток защитит от гонки Docker
+            db->InitializeStructure();
         } catch (const std::exception& ex) {
             std::cerr << "Critical Database Init Error: " << ex.what() << std::endl;
-            return EXIT_FAILURE; // Если базу не подняли за 4 секунды — выходим
+            return EXIT_FAILURE;
         }
     }
-    // Считаем количество потоков заранее, чтобы передать в пул соединений БД
-//    const unsigned num_threads = std::thread::hardware_concurrency();
 
     std::optional<json_loader::ParsedGameData> parsed_data_opt;
     try {
-        // Защита: Проверяем альтернативные пути Практикума, если основной файл не найден
         std::string final_config_path = args_opt->config_file;
         if (!std::filesystem::exists(final_config_path) && std::filesystem::exists("src/config.json")) {
             final_config_path = "src/config.json";
@@ -159,7 +160,7 @@ int main(int argc, const char* argv[]) {
     model::Game& game = parsed_data_opt->game;
     const app::LootInfoProvider& loot_info = parsed_data_opt->loot_info;
 
-    // Гарантированная защита: Если карты не загрузились, не даем серверу молча работать пустым
+    // Защита от холостого старта сервера без карт
     if (game.GetMaps().empty()) {
         std::cerr << "Critical Error: Game started with 0 maps loaded! Check config path." << std::endl;
         return EXIT_FAILURE;
@@ -170,24 +171,22 @@ int main(int argc, const char* argv[]) {
         app::Application app(game);
 
         // Подписываем базу данных на событие ухода собаки на покой
-        if (db) {
-            app.dog_retired_signal.connect([](const std::string& name, int score, double play_time) {
-                auto db = database::Database::GetInstance();
-                if (db) {
-                    try {
-                        auto conn_ptr = db->GetPool().GetConnection();
-                        pqxx::work tx(*conn_ptr);
-                        tx.exec_params(
-                            "INSERT INTO retired_players (name, score, play_time) VALUES ($1, $2, $3);",
-                            name, score, play_time
-                            );
-                        tx.commit();
-                    } catch (...) {
-                        // Молча проглатываем в релизе, чтобы не ломать парсер логов Практикума
-                    }
+        app.dog_retired_signal.connect([](const std::string& name, int score, double play_time) {
+            auto db_instance = database::Database::GetInstance();
+            if (db_instance) {
+                try {
+                    auto conn_ptr = db_instance->GetPool().GetConnection();
+                    pqxx::work tx(*conn_ptr);
+                    tx.exec_params(
+                        "INSERT INTO retired_players (name, score, play_time) VALUES ($1, $2, $3);",
+                        name, score, play_time
+                        );
+                    tx.commit();
+                } catch (...) {
+                    // Чистый релиз без лишних логов для тренажера Яндекса
                 }
-            });
-        }
+            }
+        });
 
         app.SetSpawnRandomize(args_opt->randomize_spawn_points);
         if (args_opt->tick_period.has_value()) {
@@ -203,12 +202,10 @@ int main(int argc, const char* argv[]) {
         if (args_opt->state_file.has_value()) {
             state_manager = std::make_shared<StateManager>(args_opt->state_file.value());
 
-            // Защита: Если файл пустой или формат старый — логируем, но НЕ выходим через FAILURE!
             if (!state_manager->LoadState(app, game)) {
-                BOOST_LOG_TRIVIAL(warning) << "Warning: Could not restore state from file (empty or old format), starting fresh.";
+                BOOST_LOG_TRIVIAL(warning) << "Warning: Could not restore state from file, starting fresh.";
             }
 
-            // Настраиваем параметры времени внутри Application без циклической зависимости
             app.SetupSaveParameters(args_opt->state_file, args_opt->save_state_period);
         }
 

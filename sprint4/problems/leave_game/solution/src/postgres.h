@@ -59,6 +59,7 @@ private:
     PoolType pool_;
     std::mutex mutex_;
     std::condition_variable cv_;
+    size_t created_connections_ = 0;
 };
 
 // Класс управления базой данных

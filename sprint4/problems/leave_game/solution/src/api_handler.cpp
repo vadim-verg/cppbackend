@@ -331,6 +331,10 @@ http::response<http::string_body> ApiHandler::HandleRequest(const http::request<
     else if (target == "/api/v1/game/tick") {
         return HandleGameTick(req);
     }
+    //  ИСПОЛЬЗУЕМ starts_with, так как дальше могут идти query-параметры (?start=...)
+    else if (target.starts_with("/api/v1/game/records")) {
+        return HandleGetRecords(req);
+    }
 
     return MakeErrorResponse(http::status::bad_request, "badRequest", "Invalid endpoint", version);
 }
@@ -367,82 +371,71 @@ std::optional<std::string_view> FindQueryParam(std::string_view target, std::str
     }
     return std::nullopt;
 }
-/*
+
 // GET /api/v1/game/records
 http::response<http::string_body> ApiHandler::HandleGetRecords(const http::request<http::string_body>& req) const {
-
     unsigned int version = req.version();
-    // Если БД отключена — возвращаем пустой список
-    if (!db_) {
-        http::response<http::string_body> res(http::status::ok, version);
-        res.set(http::field::content_type, "application/json");
-        res.set(http::field::cache_control, "no-cache");
-        if (req.method() == http::verb::get) {
-            res.body() = "[]";
-        }
-        res.prepare_payload();
-        return res;
-    }
+    auto target_boost = req.target();
+    std::string_view target{target_boost.data(), target_boost.size()};
 
-    // Проверяем метод HTTP (ТЗ разрешает только GET и HEAD)
+    // 1. Валидация HTTP-метода (только GET и HEAD по ТЗ)
     if (req.method() != http::verb::get && req.method() != http::verb::head) {
         auto res = MakeErrorResponse(http::status::method_not_allowed, "invalidMethod", "Invalid method", version);
         res.set(http::field::allow, "GET, HEAD");
         return res;
     }
 
-    std::string_view target{req.target().data(), req.target().size()};
-
-    // Параметры по умолчанию из ТЗ
+    // Дефолтные значения из технического задания
     int start = 0;
     int max_items = 100;
 
-    // Парсим параметр start
+    // 2. Парсинг параметра "start"
     if (auto start_opt = FindQueryParam(target, "start")) {
-        auto val = *start_opt;
-        auto [ptr, ec] = std::from_chars(val.data(), val.data() + val.size(), start);
-        if (ec != std::errc{} || start < 0) {
-            return MakeErrorResponse(http::status::bad_request, "badRequest", "Invalid start parameter", version);
+        try {
+            // Преобразуем string_view в int
+            auto val = std::string(*start_opt);
+            start = std::stoi(val);
+        } catch (...) {
+            return MakeErrorResponse(http::status::bad_request, "invalidArgument", "Failed to parse start param", version);
         }
     }
 
-    // Парсим параметр maxItems
+    // 3. Парсинг параметра "maxItems"
     if (auto max_items_opt = FindQueryParam(target, "maxItems")) {
-        auto val = *max_items_opt;
-        auto [ptr, ec] = std::from_chars(val.data(), val.data() + val.size(), max_items);
-        if (ec != std::errc{} || max_items < 0) {
-            return MakeErrorResponse(http::status::bad_request, "badRequest", "Invalid maxItems parameter", version);
-        }
-        // Защита из ТЗ: если больше 100 — возвращаем 400 Bad Request
-        if (max_items > 100) {
-            return MakeErrorResponse(http::status::bad_request, "badRequest", "maxItems cannot exceed 100", version);
+        try {
+            auto val = std::string(*max_items_opt);
+            max_items = std::stoi(val);
+        } catch (...) {
+            return MakeErrorResponse(http::status::bad_request, "invalidArgument", "Failed to parse maxItems param", version);
         }
     }
 
-    // Получаем записи из базы данных через наш пул
-    std::vector<database::PlayerRecord> records;
-    try {
-        records = db_->GetRecords(start, max_items);
-    } catch (const std::exception& ex) {
-        return MakeErrorResponse(http::status::internal_server_error, "internalError", "Database error occurred", version);
+    // 4. ЖЕСТКАЯ КРИТИЧЕСКАЯ ПРОВЕРКА ИЗ ТЗ: Если maxItems > 100, отдаем 400 Bad Request
+    if (max_items > 100) {
+        return MakeErrorResponse(http::status::bad_request, "badRequest", "maxItems elements count limit is 100", version);
     }
 
-    // Собираем JSON-массив из рекордов
+    // 5. Запрос записей из синглтона базы данных (наш метод из postgres.cpp)
+    auto db_instance = database::Database::GetInstance();
+    std::vector<database::PlayerRecord> db_records;
+    if (db_instance) {
+        db_records = db_instance->GetRecords(start, max_items);
+    }
+
+    // 6. Формирование JSON-ответа
     boost::json::array json_records;
-    for (const auto& rec : records) {
+    for (const auto& rec : db_records) {
         boost::json::object obj;
         obj["name"] = rec.name;
         obj["score"] = rec.score;
-        obj["playTime"] = rec.play_time;
+        obj["playTime"] = rec.play_time; // double тип данных сохраняется автоматически
         json_records.push_back(std::move(obj));
     }
 
-    // Формируем HTTP-ответ
     http::response<http::string_body> res(http::status::ok, version);
     res.set(http::field::content_type, "application/json");
-    res.set(http::field::cache_control, "no-cache");
+    res.set(http::field::cache_control, "no-cache"); // Требование ТЗ
 
-    // Если метод GET — пишем тело, если HEAD — тело остается пустым
     if (req.method() == http::verb::get) {
         res.body() = boost::json::serialize(json_records);
     }
@@ -450,5 +443,5 @@ http::response<http::string_body> ApiHandler::HandleGetRecords(const http::reque
     res.prepare_payload();
     return res;
 }
-*/
+
 } // namespace http_handler

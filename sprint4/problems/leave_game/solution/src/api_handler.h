@@ -24,7 +24,7 @@ public:
         , state_manager_(state_manager)
     {}
 
- //   http::response<http::string_body> HandleGetRecords(const http::request<http::string_body>& req) const;
+    http::response<http::string_body> HandleGetRecords(const http::request<http::string_body>& req) const;
 
     http::response<http::string_body> HandleGetGameState(const http::request<http::string_body>& req) const;
 

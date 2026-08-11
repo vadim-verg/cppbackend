@@ -25,18 +25,24 @@ ConnectionPool::ConnectionPool(size_t capacity, std::string db_url)
 ConnectionPtr ConnectionPool::GetConnection() {
     std::unique_lock<std::mutex> lock(mutex_);
 
-    // Если в пуле пусто, но мы ещё не достигли лимита capacity_, создаем новое соединение на лету
+    // Ждем, пока в пуле появится соединение ИЛИ пока у нас есть право создать новое до лимита
+    cv_.wait(lock, [this] {
+        return !pool_.empty() || created_connections_ < capacity_;
+    });
+
+    // Если в очереди пусто, но лимит не исчерпан — создаем новое соединение
     if (pool_.empty()) {
         try {
             auto new_conn = std::make_shared<pqxx::connection>(db_url_);
+            ++created_connections_; // Увеличиваем счетчик живых соединений
             return ConnectionPtr(std::move(new_conn), *this);
         } catch (...) {
-            // Если база недоступна, подождем по условной переменной, вдруг освободится существующее
+            // Если база выбросила исключение, пробрасываем его, чтобы InitializeStructure сработал цикл попыток
+            throw;
         }
     }
 
-    cv_.wait(lock, [this] { return !pool_.empty(); });
-
+    // Иначе забираем существующее из пула
     auto conn = pool_.front();
     pool_.pop();
     return ConnectionPtr(std::move(conn), *this);
@@ -45,10 +51,9 @@ ConnectionPtr ConnectionPool::GetConnection() {
 void ConnectionPool::ReturnConnection(std::shared_ptr<pqxx::connection> conn) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        // Защита: не накапливаем в пуле больше соединений, чем capacity_
-        if (pool_.size() < capacity_) {
-            pool_.push(std::move(conn));
-        }
+        // Так как мы строго контролируем created_connections_,
+        // возвращаемое соединение ВСЕГДА должно помещаться в пул
+        pool_.push(std::move(conn));
     }
     cv_.notify_one();
 }
