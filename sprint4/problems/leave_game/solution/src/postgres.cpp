@@ -25,19 +25,17 @@ ConnectionPool::ConnectionPool(size_t capacity, std::string db_url)
 ConnectionPtr ConnectionPool::GetConnection() {
     std::unique_lock<std::mutex> lock(mutex_);
 
-    // Если в пуле пусто и мы еще не создали соединений до лимита capacity_
     if (pool_.empty()) {
         try {
             auto new_conn = std::make_shared<pqxx::connection>(db_url_);
-            // Если соединение успешно создано — возвращаем его
             return ConnectionPtr(std::move(new_conn), *this);
-        } catch (...) {
-
-            throw;
+        } catch (const std::exception& e) {
+            // Записываем реальную ошибку сети Docker в лог ошибок
+            std::cerr << "[PQXX CONNECTION FAILED] Url: " << db_url_ << " Reason: " << e.what() << std::endl;
+            throw; // Пробрасываем её, чтобы InitializeStructure поймал её в catch
         }
     }
 
-    // Если лимит соединений исчерпан и они все заняты — ждем освобождения
     cv_.wait(lock, [this] { return !pool_.empty(); });
 
     auto conn = pool_.front();
