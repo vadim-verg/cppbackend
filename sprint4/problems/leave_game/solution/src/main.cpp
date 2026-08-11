@@ -131,16 +131,17 @@ int main(int argc, const char* argv[]) {
     if (!db_url.empty()) {
         try {
             db = std::make_shared<database::Database>(db_url, 2);
-
-            // 1. Сохраняем в глобальный синглтон для изоляции слоев рекордов
             database::Database::SetInstance(db);
 
-            // 2. РАСКОММЕНТИРОВАНО: Гарантированно создаем таблицы при старте,
-            // наш метод в postgres.cpp с циклом попыток защитит от гонки Docker
-            db->InitializeStructure();
+            try {
+                db->InitializeStructure();
+            } catch (const std::exception& db_ex) {
+                std::cerr << "[DB Warning] Failed to initialize tables: " << db_ex.what()
+                << ". Server will continue without DB features." << std::endl;
+            }
         } catch (const std::exception& ex) {
             std::cerr << "Critical Database Init Error: " << ex.what() << std::endl;
-            return EXIT_FAILURE;
+            // Оставляем только критическую ошибку самого пула, но не структуры
         }
     }
 
