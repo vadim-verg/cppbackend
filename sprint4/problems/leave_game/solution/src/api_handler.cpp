@@ -374,7 +374,9 @@ std::optional<std::string_view> FindQueryParam(std::string_view target, std::str
 
 // GET /api/v1/game/records
 http::response<http::string_body> ApiHandler::HandleGetRecords(const http::request<http::string_body>& req) const {
-  //  unsigned int version = req.version();
+    // ⚠️ ВЕРНИТЕ ЭТУ СТРОКУ СЮДА: Теперь она нужна, так как version используется в ответах об ошибках!
+    unsigned int version = req.version();
+
     auto target_boost = req.target();
     std::string_view target{target_boost.data(), target_boost.size()};
 
@@ -392,7 +394,6 @@ http::response<http::string_body> ApiHandler::HandleGetRecords(const http::reque
     // 2. Парсинг параметра "start"
     if (auto start_opt = FindQueryParam(target, "start")) {
         try {
-            // Преобразуем string_view в int
             auto val = std::string(*start_opt);
             start = std::stoi(val);
         } catch (...) {
@@ -410,7 +411,7 @@ http::response<http::string_body> ApiHandler::HandleGetRecords(const http::reque
         }
     }
 
-    // 4. ЖЕСТКАЯ КРИТИЧЕСКАЯ ПРОВЕРКА ИЗ ТЗ: Если maxItems > 100, отдаем 400 Bad Request
+    // 4. ЖЕСТКАЯ ПРОВЕРКА ИЗ ТЗ: Если maxItems > 100, отдаем 400 Bad Request
     if (max_items > 100) {
         return MakeErrorResponse(http::status::bad_request, "badRequest", "maxItems elements count limit is 100", version);
     }
