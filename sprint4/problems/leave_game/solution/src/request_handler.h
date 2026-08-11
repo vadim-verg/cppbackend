@@ -117,7 +117,7 @@ public:
                 return;
             }
 
-            // Изолированная ручка рекордов
+            // 1. НАША РУЧКА: Перехватываем строго по совпадению очищенного пути target_sv
             if (target_sv == "/api/v1/game/records") {
                 if (req.method() != http::verb::get && req.method() != http::verb::head) {
                     send(MakeMethodNotAllowedResponse(req));
@@ -127,13 +127,12 @@ public:
                 return;
             }
 
-            // === ВОЗВРАЩАЕМ ОРИГИНАЛЬНЫЙ ВЫЗОВ В ТОЧНОСТИ КАК БЫЛО ===
-            // Никаких модификаций req.target(), передаем исходный req в первозданном виде
+            // 2. ИГРОВОЕ API ПРАКТИКУМА: Возвращаем оригинальный шаблонный вызов.
+            // УДАЛИЛИ ОТСЮДА СТРОКУ req.target(...), которая портила память!
             if (target_sv.starts_with("/api/v1/game/")) {
                 send(api_handler_.HandleRequest(req));
                 return;
             }
-            // ========================================================
 
             send(MakeBadRequestResponse(req));
             return;
