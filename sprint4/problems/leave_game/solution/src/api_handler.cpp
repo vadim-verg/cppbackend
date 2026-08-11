@@ -60,9 +60,6 @@ std::optional<std::string> ApiHandler::TryExtractToken(const http::request<http:
 http::response<http::string_body> ApiHandler::HandleJoinGame(const http::request<http::string_body>& req) const {
     unsigned int version = req.version();
 
-    // === ЛОГ 1: Показывает, что запрос вообще прилетел в метод и что внутри тела ===
-    std::cerr << "[DEBUG JOIN] Method entered. Body content: '" << req.body() << "'" << std::endl << std::flush;
-
     if (req.method() != http::verb::post) {
         auto res = MakeErrorResponse(http::status::method_not_allowed, "invalidMethod", "Only POST method is expected", version);
         res.set(http::field::allow, "POST");
@@ -78,26 +75,29 @@ http::response<http::string_body> ApiHandler::HandleJoinGame(const http::request
         user_name = boost::json::value_to<std::string>(json_obj.at("userName"));
         map_id = boost::json::value_to<std::string>(json_obj.at("mapId"));
     } catch (const std::exception& e) {
-        // === ЛОГ 2: Ошибка парсинга JSON ===
-        std::cerr << "[DEBUG JOIN] JSON Parse Exception: " << e.what() << std::endl << std::flush;
-        return MakeErrorResponse(http::status::bad_request, "invalidArgument", "Join game request parse error", version);
+        // Выводим ошибку парсинга прямо в JSON-ответ
+        return MakeErrorResponse(http::status::bad_request, "invalidArgument",
+                                 "DEBUG_JOIN_PARSE_ERROR: Body='" + req.body() + "', Exception=" + e.what(), version);
     }
 
     if (user_name.empty()) {
-        // === ЛОГ 3: Пустое имя ===
-        std::cerr << "[DEBUG JOIN] User name is empty!" << std::endl << std::flush;
         return MakeErrorResponse(http::status::bad_request, "invalidArgument", "Invalid name", version);
     }
 
+    // === САМАЯ ВАЖНАЯ ПРОВЕРКА ДЛЯ ДИАГНОСТИКИ ===
     auto join_result = app_.JoinGame(user_name, map_id);
     if (!join_result) {
-        // === ЛОГ 4: Ошибка движка (карта не найдена или nullopt) ===
-        std::cerr << "[DEBUG JOIN] JoinGame returned nullopt for Name: '" << user_name << "', Map: '" << map_id << "'" << std::endl << std::flush;
-        return MakeErrorResponse(http::status::not_found, "mapNotFound", "Map not found", version);
-    }
+        // Считаем сколько карт реально загружено в модель в данный момент
+        size_t total_maps = app_.GetGame().GetMaps().size();
+        std::string maps_list = "";
+        for (const auto& m : app_.GetGame().GetMaps()) {
+            maps_list += (*m.GetId() + ",");
+        }
 
-    // === ЛОГ 5: Успех ===
-    std::cerr << "[DEBUG JOIN] SUCCESS! Token generated." << std::endl << std::flush;
+        // Передаем полную диагностику прямо в тесты через поле message!
+        return MakeErrorResponse(http::status::not_found, "mapNotFound",
+                                 "DEBUG_JOIN_FAIL: Looking for Map='" + map_id + "'. Total loaded maps=" + std::to_string(total_maps) + " [" + maps_list + "]", version);
+    }
 
     http::response<http::string_body> res(http::status::ok, version);
     res.set(http::field::content_type, "application/json");
