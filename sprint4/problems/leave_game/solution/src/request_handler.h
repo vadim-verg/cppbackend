@@ -86,10 +86,12 @@ public:
     RequestHandler& operator=(const RequestHandler&) = delete;
 
     template <typename Body, typename Allocator, typename Send>
-    void operator()(http::request<Body, http::basic_fields<Allocator>>&& req, Send&& send) {
+    void operator()(boost::beast::http::request<Body, boost::beast::http::basic_fields<Allocator>>&& req, Send&& send) {
 
-        std::string_view target{req.target().data(), req.target().size()};
+        std::string_view original_target{req.target().data(), req.target().size()};
+        std::string_view target = original_target;
 
+        // Для роутинга статики отрезаем query-параметры
         if (auto query_pos = target.find('?'); query_pos != std::string_view::npos) {
             target = target.substr(0, query_pos);
         }
@@ -117,13 +119,13 @@ public:
                 return;
             }
 
-            // 1. НАША РУЧКА: Перехватываем строго по совпадению очищенного пути target_sv
+            // Проверяем эндпоинт рекордов строго по базовому URI
             if (target_sv == "/api/v1/game/records") {
                 if (req.method() != http::verb::get && req.method() != http::verb::head) {
                     send(MakeMethodNotAllowedResponse(req));
                     return;
                 }
-                send(HandleGetRecords(req));
+                send(api_handler_.HandleGetRecords(req));
                 return;
             }
 
@@ -136,6 +138,7 @@ public:
             return;
         }
 
+        // --- Обработка статических файлов ---
         if (req.method() != http::verb::get && req.method() != http::verb::head) {
             send(MakeMethodNotAllowedResponse(req));
             return;
@@ -359,48 +362,6 @@ private:
             pos = next_amp + 1;
         }
         return std::nullopt;
-    }
-
-    template <typename Body, typename Allocator>
-    http::response<http::string_body> HandleGetRecords(const http::request<Body, http::basic_fields<Allocator>>& req) const {
-        unsigned int version = req.version();
-        auto db = database::Database::GetInstance();
-
-        if (!db) {
-            auto res = MakeBaseResponse(req, http::status::ok, "[]");
-            if (req.method() == http::verb::head) res.body() = "";
-            return res;
-        }
-
-        std::string_view target{req.target().data(), req.target().size()};
-        int start = 0;
-        int max_items = 100;
-
-        if (auto start_opt = FindQueryParam(target, "start")) {
-            std::string val( *start_opt );
-            try { start = std::stoi(val); } catch (...) { return MakeBaseResponse(req, http::status::bad_request, R"({"code":"badRequest","message":"Invalid start"})"); }
-            if (start < 0) return MakeBaseResponse(req, http::status::bad_request, R"({"code":"badRequest","message":"Invalid start"})");
-        }
-
-        if (auto max_items_opt = FindQueryParam(target, "maxItems")) {
-            std::string val( *max_items_opt );
-            try { max_items = std::stoi(val); } catch (...) { return MakeBaseResponse(req, http::status::bad_request, R"({"code":"badRequest","message":"Invalid maxItems"})"); }
-            if (max_items < 0 || max_items > 100) return MakeBaseResponse(req, http::status::bad_request, R"({"code":"badRequest","message":"Invalid maxItems"})");
-        }
-
-        auto records = db->GetRecords(start, max_items);
-        boost::json::array json_records;
-        for (const auto& rec : records) {
-            boost::json::object obj;
-            obj["name"] = rec.name;
-            obj["score"] = rec.score;
-            obj["playTime"] = rec.play_time;
-            json_records.push_back(std::move(obj));
-        }
-
-        auto res = MakeBaseResponse(req, http::status::ok, boost::json::serialize(json_records));
-        if (req.method() == http::verb::head) res.body() = "";
-        return res;
     }
 
 };
