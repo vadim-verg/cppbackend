@@ -414,13 +414,15 @@ public:
     void AddScore(int points) noexcept { score_ += points; }
 
     // Метод обновления времени на игровом тике
-    void UpdateTime(double delta_seconds) {
-        play_time_ += delta_seconds;
+    void UpdateTime(double delta_time_seconds) {
+        // Общее время в игре увеличивается при каждом тике
+        play_time_ += delta_time_seconds;
 
-        // Копим время бездействия, только если оно принудительно началось
-        if (is_idle_started_ && speed_.ux == 0.0 && speed_.uy == 0.0) {
-            idle_time_ += delta_seconds;
+        // ТЗ: Бездействие начинается, как только скорость равна нулю
+        if (speed_.ux == 0.0 && speed_.uy == 0.0) {
+            idle_time_ += delta_time_seconds;
         } else {
+            // Если пёс движется, счётчик бездействия сбрасывается
             idle_time_ = 0.0;
         }
     }
