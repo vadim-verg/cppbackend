@@ -374,7 +374,7 @@ std::optional<std::string_view> FindQueryParam(std::string_view target, std::str
 
 // GET /api/v1/game/records
 http::response<http::string_body> ApiHandler::HandleGetRecords(const http::request<http::string_body>& req) const {
-    unsigned int version = req.version();
+  //  unsigned int version = req.version();
     auto target_boost = req.target();
     std::string_view target{target_boost.data(), target_boost.size()};
 

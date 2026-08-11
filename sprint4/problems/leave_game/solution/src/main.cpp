@@ -130,21 +130,16 @@ int main(int argc, const char* argv[]) {
     std::shared_ptr<database::Database> db = nullptr;
     if (!db_url.empty()) {
         try {
-            // Оборачиваем ВЕСЬ процесс создания базы в локальный try-catch
             db = std::make_shared<database::Database>(db_url, 2);
             database::Database::SetInstance(db);
 
             try {
                 db->InitializeStructure();
-            } catch (const std::exception& db_ex) {
-                std::cerr << "[DB INIT ERROR] Table structure failed: " << db_ex.what() << std::endl;
             } catch (...) {
-                std::cerr << "[DB INIT ERROR] Unknown exception during InitializeStructure" << std::endl;
+                std::cerr << "[DB Warning] Failed to init structure, continuing..." << std::endl;
             }
-        } catch (const std::exception& ex) {
-            std::cerr << "[DB POOL ERROR] Database pool creation failed: " << ex.what() << std::endl;
         } catch (...) {
-            std::cerr << "[DB POOL ERROR] Unknown database pool exception" << std::endl;
+            std::cerr << "[DB Warning] Failed to init pool, continuing..." << std::endl;
         }
     }
 

@@ -29,10 +29,8 @@ ConnectionPtr ConnectionPool::GetConnection() {
         try {
             auto new_conn = std::make_shared<pqxx::connection>(db_url_);
             return ConnectionPtr(std::move(new_conn), *this);
-        } catch (const std::exception& e) {
-            // Записываем реальную ошибку сети Docker в лог ошибок
-            std::cerr << "[PQXX CONNECTION FAILED] Url: " << db_url_ << " Reason: " << e.what() << std::endl;
-            throw; // Пробрасываем её, чтобы InitializeStructure поймал её в catch
+        } catch (...) {
+            throw;
         }
     }
 
