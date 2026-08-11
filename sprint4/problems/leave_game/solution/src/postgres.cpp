@@ -60,16 +60,13 @@ Database::Database(const std::string& db_url, size_t pool_capacity)
 }
 
 void Database::InitializeStructure() {
-    // Статический флаг, чтобы не насиловать базу DDL-запросами на каждом тике
-    static bool structure_initialized = false;
-    if (structure_initialized) return;
-
-    // Делаем до 3 быстрых попыток подключиться, если БД еще просыпается в Docker
-    for (int attempt = 0; attempt < 3; ++attempt) {
+    // Делаем до 20 попыток с паузой в 200 мс (суммарно до 4 секунд ожидания СУБД)
+    for (int attempt = 0; attempt < 20; ++attempt) {
         try {
             auto conn_ptr = pool_.GetConnection();
             pqxx::work tx(*conn_ptr);
 
+            // 1. Создаем таблицу retired_players
             tx.exec(R"(
                 CREATE TABLE IF NOT EXISTS retired_players (
                     id SERIAL PRIMARY KEY,
@@ -79,26 +76,29 @@ void Database::InitializeStructure() {
                 );
             )");
 
+            // 2. Создаем составной индекс
             tx.exec(R"(
                 CREATE INDEX IF NOT EXISTS idx_retired_players_score_time_name
                 ON retired_players (score DESC, play_time ASC, name ASC);
             )");
 
             tx.commit();
-            structure_initialized = true; // Успешно создано!
-            return;
+            std::cout << "[DB Init] Structure successfully initialized." << std::endl << std::flush;
+            return; // Все создано, выходим
         } catch (const std::exception& ex) {
-            std::cerr << "[DB Init] Попытка " << attempt + 1 << " не удалась: " << ex.what() << std::endl;
-            if (attempt < 2) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Короткая пауза перед повтором
+            if (attempt == 19) {
+                // Если это последняя попытка — пробрасываем исключение наверх
+                throw;
             }
+            // Если база еще не готова, ждем и повторяем
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
         }
     }
 }
 
 std::vector<PlayerRecord> Database::GetRecords(int start, int max_items) {
     // При каждом запросе рекордов на всякий случай убеждаемся, что таблица создана
-    InitializeStructure();
+//    InitializeStructure();
 
     try {
         auto conn_ptr = pool_.GetConnection();

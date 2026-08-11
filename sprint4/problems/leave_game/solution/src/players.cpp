@@ -54,6 +54,11 @@ std::optional<JoinGameResult> Application::JoinGame(const std::string& user_name
 
     model::Dog::Id dog_id{player->GetId()};
     auto dog = std::make_shared<model::Dog>(dog_id, user_name, start_pos);
+
+    // === ВСТАВЛЯЕМ СЮДА: Новая собака НЕ бездействует на старте ===
+    dog->SetIdleStarted(false);
+    // =============================================================
+
     player->SetDog(dog);
 
     std::string token = player_tokens_.AddPlayer(player);
@@ -299,8 +304,16 @@ void Application::Tick(double delta_time_seconds) {
             auto dog = player->GetDog();
 
             if (dog) {
-                // Активируем сигнал: Наблюдатель (БД) поймает его и выполнит INSERT
+                // Вызываем сигнал рекордов для базы данных
                 dog_retired_signal(dog->GetName(), dog->GetScore(), dog->GetPlayTime());
+
+                // === СИНХРОНИЗАЦИЯ С МОДЕЛЬЮ GAME ===
+                model::Map::Id map_id{player->GetMapId()};
+                size_t current_count = mutable_game.GetDogCount(map_id);
+                if (current_count > 0) {
+                    mutable_game.SetDogCount(map_id, current_count - 1);
+                }
+                // ===================================
             }
 
             // Аннулируем авторизационный токен

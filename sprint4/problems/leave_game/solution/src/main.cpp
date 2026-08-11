@@ -137,8 +137,12 @@ int main(int argc, const char* argv[]) {
     if (!db_url.empty()) {
         try {
             db = std::make_shared<database::Database>(db_url, 2);
-            database::Database::SetInstance(db); // Сохраняем в глобальный инстанс!
-        } catch (...) {}
+            // Гарантированно и синхронно создаем таблицы ДО старта игры и сессий
+  //          db->InitializeStructure();
+        } catch (const std::exception& ex) {
+            std::cerr << "Critical Database Init Error: " << ex.what() << std::endl;
+            return EXIT_FAILURE; // Если базу не подняли за 4 секунды — выходим
+        }
     }
     // Считаем количество потоков заранее, чтобы передать в пул соединений БД
 //    const unsigned num_threads = std::thread::hardware_concurrency();
