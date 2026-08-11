@@ -127,8 +127,6 @@ public:
                 return;
             }
 
-            // 2. ИГРОВОЕ API ПРАКТИКУМА: Возвращаем оригинальный шаблонный вызов.
-            // УДАЛИЛИ ОТСЮДА СТРОКУ req.target(...), которая портила память!
             if (target_sv.starts_with("/api/v1/game/")) {
                 send(api_handler_.HandleRequest(req));
                 return;

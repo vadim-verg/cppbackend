@@ -83,7 +83,7 @@ void Database::InitializeStructure() {
             )");
 
             tx.commit();
-            std::cout << "[DB Init] Structure successfully initialized." << std::endl << std::flush;
+            //std::cout << "[DB Init] Structure successfully initialized." << std::endl << std::flush;
             return; // Все создано, выходим
         } catch (const std::exception& ex) {
             if (attempt == 19) {

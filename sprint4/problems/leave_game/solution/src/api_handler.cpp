@@ -18,13 +18,7 @@ http::response<http::string_body> ApiHandler::MakeErrorResponse(
     obj["code"] = code;
     obj["message"] = message;
 
-    std::string body_str = boost::json::serialize(obj);
-
-    // === ВРЕМЕННЫЙ ОТЛАДОЧНЫЙ ВЫВОД ДЛЯ ТЕСТОВ ===
-    std::cout << "[API ERROR LOG] Code: " << code << ", Message: " << message << std::endl << std::flush;
-    // =============================================
-
-    res.body() = body_str;
+    res.body() = boost::json::serialize(obj);
     res.prepare_payload();
     return res;
 }
@@ -75,28 +69,16 @@ http::response<http::string_body> ApiHandler::HandleJoinGame(const http::request
         user_name = boost::json::value_to<std::string>(json_obj.at("userName"));
         map_id = boost::json::value_to<std::string>(json_obj.at("mapId"));
     } catch (const std::exception& e) {
-        // Выводим ошибку парсинга прямо в JSON-ответ
-        return MakeErrorResponse(http::status::bad_request, "invalidArgument",
-                                 "DEBUG_JOIN_PARSE_ERROR: Body='" + req.body() + "', Exception=" + e.what(), version);
+        return MakeErrorResponse(http::status::bad_request, "invalidArgument", "Join game request parse error", version);
     }
 
     if (user_name.empty()) {
         return MakeErrorResponse(http::status::bad_request, "invalidArgument", "Invalid name", version);
     }
 
-    // === САМАЯ ВАЖНАЯ ПРОВЕРКА ДЛЯ ДИАГНОСТИКИ ===
     auto join_result = app_.JoinGame(user_name, map_id);
     if (!join_result) {
-        // Считаем сколько карт реально загружено в модель в данный момент
-        size_t total_maps = app_.GetGame().GetMaps().size();
-        std::string maps_list = "";
-        for (const auto& m : app_.GetGame().GetMaps()) {
-            maps_list += (*m.GetId() + ",");
-        }
-
-        // Передаем полную диагностику прямо в тесты через поле message!
-        return MakeErrorResponse(http::status::not_found, "mapNotFound",
-                                 "DEBUG_JOIN_FAIL: Looking for Map='" + map_id + "'. Total loaded maps=" + std::to_string(total_maps) + " [" + maps_list + "]", version);
+        return MakeErrorResponse(http::status::not_found, "mapNotFound", "Map not found", version);
     }
 
     http::response<http::string_body> res(http::status::ok, version);

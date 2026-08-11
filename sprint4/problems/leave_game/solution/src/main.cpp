@@ -182,7 +182,9 @@ int main(int argc, const char* argv[]) {
                             name, score, play_time
                             );
                         tx.commit();
-                    } catch (...) {}
+                    } catch (...) {
+                        // Молча проглатываем в релизе, чтобы не ломать парсер логов Практикума
+                    }
                 }
             });
         }
