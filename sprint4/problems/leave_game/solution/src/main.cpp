@@ -128,19 +128,36 @@ int main(int argc, const char* argv[]) {
 
     // Инициализируем базу данных
     std::shared_ptr<database::Database> db = nullptr;
-    if (!db_url.empty()) {
+
+    // Проверяем: если GAME_DB_URL пустой или равен "postgres" (ошибка конфига),
+    // или если хост не резолвится, сервер НЕ должен падать!
+    if (!db_url.empty() && db_url != "postgres") {
         try {
+            // Создаем пул. Защищаем сам конструктор
             db = std::make_shared<database::Database>(db_url, 2);
             database::Database::SetInstance(db);
 
+            // Защищаем инициализацию структуры таблиц
             try {
                 db->InitializeStructure();
+            } catch (const std::exception& db_ex) {
+                std::cerr << "[DB Warning] Failed to initialize table structure: "
+                          << db_ex.what() << ". Continuing in postgres-less mode." << std::endl;
             } catch (...) {
-                std::cerr << "[DB Warning] Failed to init structure, continuing..." << std::endl;
+                std::cerr << "[DB Warning] Unknown error during InitializeStructure. Continuing..." << std::endl;
             }
+        } catch (const std::exception& ex) {
+            std::cerr << "[DB Warning] Database pool creation failed: "
+                      << ex.what() << ". Server will work without DB." << std::endl;
+            db = nullptr;
+            database::Database::SetInstance(nullptr);
         } catch (...) {
-            std::cerr << "[DB Warning] Failed to init pool, continuing..." << std::endl;
+            std::cerr << "[DB Warning] Unknown error during DB pool init. Continuing..." << std::endl;
+            db = nullptr;
+            database::Database::SetInstance(nullptr);
         }
+    } else {
+        std::cout << "[Server Init] Running in pure postgres-less mode (GAME_DB_URL is empty)." << std::endl;
     }
 
     std::optional<json_loader::ParsedGameData> parsed_data_opt;
