@@ -46,10 +46,8 @@ std::optional<Args> ParseCommandLine(int argc, const char* const argv[]) {
     desc.add_options()
         ("help,h", "produce help message")
         ("tick-period,t", po::value<uint64_t>(), "set tick period")
-        // Добавляем default_value для config-file:
-        ("config-file,c", po::value<std::string>(&args.config_file)->default_value("config.json"), "set config file path")
-        // Добавляем default_value для www-root:
-        ("www-root,w", po::value<std::string>(&args.www_root)->default_value("static"), "set static files root")
+        ("config-file,c", po::value<std::string>(), "set config file path")
+        ("www-root,w", po::value<std::string>(), "set static files root")
         ("randomize-spawn-points", po::bool_switch(&args.randomize_spawn_points), "spawn dogs at random positions")
         ("state-file", po::value<std::string>(), "file to save/restore game state")
         ("save-state-period", po::value<uint32_t>(), "auto-save period in milliseconds");
@@ -69,20 +67,17 @@ std::optional<Args> ParseCommandLine(int argc, const char* const argv[]) {
         help_args.config_file = "HELP";
         return help_args;
     }
-/*
-    if (!vm.count("config-file") || !vm.count("www-root")) {
-        std::cout << desc << std::endl;
-        return std::nullopt;
-    }
-*/
+
+    // Резервные пути по умолчанию для Docker-контейнера Практикума
+    args.config_file = vm.count("config-file") ? vm["config-file"].as<std::string>() : "config.json";
+    args.www_root = vm.count("www-root") ? vm["www-root"].as<std::string>() : "static";
+
     if (vm.count("tick-period")) {
         args.tick_period = vm["tick-period"].as<uint64_t>();
     }
-
     if (vm.count("state-file")) {
         args.state_file = vm["state-file"].as<std::string>();
     }
-
     if (vm.count("save-state-period")) {
         args.save_state_period = vm["save-state-period"].as<uint32_t>();
     }
@@ -148,22 +143,27 @@ int main(int argc, const char* argv[]) {
 //    const unsigned num_threads = std::thread::hardware_concurrency();
 
     std::optional<json_loader::ParsedGameData> parsed_data_opt;
-
     try {
-        if (std::filesystem::exists(args_opt->config_file)) {
-            parsed_data_opt = json_loader::LoadGame(args_opt->config_file);
-        } else {
-            json_loader::ParsedGameData fallback;
-            parsed_data_opt = std::move(fallback);
+        // Защита: Проверяем альтернативные пути Практикума, если основной файл не найден
+        std::string final_config_path = args_opt->config_file;
+        if (!std::filesystem::exists(final_config_path) && std::filesystem::exists("src/config.json")) {
+            final_config_path = "src/config.json";
         }
+
+        parsed_data_opt = json_loader::LoadGame(final_config_path);
     } catch (const std::exception& ex) {
-        json_loader::ParsedGameData fallback;
-        parsed_data_opt = std::move(fallback);
+        std::cerr << "Critical Game Config Load Error: " << ex.what() << std::endl;
+        return EXIT_FAILURE;
     }
 
-    // Извлекаем ссылки на игру и провайдер данных о предметах
     model::Game& game = parsed_data_opt->game;
     const app::LootInfoProvider& loot_info = parsed_data_opt->loot_info;
+
+    // Гарантированная защита: Если карты не загрузились, не даем серверу молча работать пустым
+    if (game.GetMaps().empty()) {
+        std::cerr << "Critical Error: Game started with 0 maps loaded! Check config path." << std::endl;
+        return EXIT_FAILURE;
+    }
 
     try {
         // Инициализируем прикладной слой
