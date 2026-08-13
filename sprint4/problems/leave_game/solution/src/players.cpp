@@ -119,6 +119,8 @@ bool Application::MovePlayer(const std::string& token, const std::string& move_c
         return false;
     }
 
+    dog_ptr->ResetIdleTime();
+
     return true;
 }
 
@@ -195,8 +197,10 @@ void Application::Tick(double delta_time_seconds) {
         auto dog_ptr = player->GetDog();
         if (!dog_ptr) continue;
 
-        dog_ptr->UpdateTime(delta_time_seconds);
+        // Внимание: мы УБРАЛИ отсюда ручной вызов UpdateTime,
+        // так как он уже автоматически вызывается ниже внутри mutable_game.Tick(delta_ms)!
 
+        // Проверяем таймаут отправки на пенсию
         if (retirement_timeout > 0.0 && dog_ptr->GetIdleTime() >= retirement_timeout) {
             players_to_retire.push_back(id);
         }
