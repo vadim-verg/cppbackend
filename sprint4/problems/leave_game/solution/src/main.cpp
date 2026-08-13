@@ -117,6 +117,12 @@ int main(int argc, const char* argv[]) {
     const char* db_url_env = std::getenv("GAME_DB_URL");
     std::string db_url = db_url_env ? std::string(db_url_env) : ""s;
 
+    // ФИКС ДЛЯ АВТОТЕСТОВ ПРАКТИКУМА:
+    // Заменяем префикс "postgres://", так как pqxx требует "postgresql://"
+    if (db_url.rfind("postgres://", 0) == 0) {
+        db_url.replace(0, 11, "postgresql://");
+    }
+
     // Обязательное сообщение для тестов практикума
     std::cout << "Server started" << std::endl << std::flush;
 
@@ -126,7 +132,8 @@ int main(int argc, const char* argv[]) {
 
     std::shared_ptr<database::Database> db = nullptr;
 
-    if (!db_url.empty() && db_url != "postgres") {
+    // Исправлено условие: проверяем строго на пустоту строки
+    if (!db_url.empty()) {
         try {
             db = std::make_shared<database::Database>(db_url, 2);
             database::Database::SetInstance(db);
