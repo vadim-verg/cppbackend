@@ -123,12 +123,10 @@ int main(int argc, const char* argv[]) {
         db_url.replace(0, 11, "postgresql://");
     }
 
-    // Обязательное сообщение для тестов практикума
-    std::cout << "Server started" << std::endl << std::flush;
+
 
     logger::InitLogger();
 
-    std::cout << "{\"message\": \"server started\", \"data\": {\"port\": 8080, \"address\": \"0.0.0.0\"}}" << std::endl;
 
     std::shared_ptr<database::Database> db = nullptr;
 
@@ -282,6 +280,11 @@ int main(int argc, const char* argv[]) {
                 });
             });
         });
+
+        // Обязательное сообщение для тестов практикума
+        std::cout << "Server started" << std::endl << std::flush;
+
+        std::cout << "{\"message\": \"server started\", \"data\": {\"port\": 8080, \"address\": \"0.0.0.0\"}}" << std::endl;
 
         RunWorkers(num_threads, [&ioc] {
             ioc.run();
