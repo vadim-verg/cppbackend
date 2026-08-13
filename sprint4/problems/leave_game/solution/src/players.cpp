@@ -179,6 +179,7 @@ void Application::Tick(double delta_time_seconds) {
 
     std::vector<uint32_t> players_to_retire;
 
+    // 1. Обновляем физические позиции собак
     for (const auto& [id, player] : player_manager_.GetPlayers()) {
         auto dog_ptr = player->GetDog();
         if (!dog_ptr) continue;
@@ -193,19 +194,9 @@ void Application::Tick(double delta_time_seconds) {
         map_to_dogs[player->GetMapId()].push_back(dog_ptr);
     }
 
-    for (const auto& [id, player] : player_manager_.GetPlayers()) {
-        auto dog_ptr = player->GetDog();
-        if (!dog_ptr) continue;
+    // ВНИМАНИЕ: Старый цикл проверки таймаутов отсюда полностью УДАЛЕН!
 
-        // Внимание: мы УБРАЛИ отсюда ручной вызов UpdateTime,
-        // так как он уже автоматически вызывается ниже внутри mutable_game.Tick(delta_ms)!
-
-        // Проверяем таймаут отправки на пенсию
-        if (retirement_timeout > 0.0 && dog_ptr->GetIdleTime() >= retirement_timeout) {
-            players_to_retire.push_back(id);
-        }
-    }
-
+    // 2. Обработка коллизий, сбор лута и начисление очков (оставляем без изменений)
     for (const auto& [map_id_str, dogs] : map_to_dogs) {
         model::Map::Id map_id{map_id_str};
         auto map_ptr = game_.FindMap(map_id);
@@ -220,7 +211,7 @@ void Application::Tick(double delta_time_seconds) {
             provider.gatherers.push_back(collision_detector::Gatherer{
                 .start_pos = {start_pos.x, start_pos.y},
                 .end_pos = {end_pos.x, end_pos.y},
-                .width = 0.3 // половина ширины игрока (0.6 / 2)
+                .width = 0.3
             });
             provider.dog_ptrs.push_back(dog_ptr);
         }
@@ -229,7 +220,7 @@ void Application::Tick(double delta_time_seconds) {
         for (const auto& [obj_id, obj] : lost_objects) {
             provider.items.push_back(collision_detector::Item{
                 .position = {obj.pos.x, obj.pos.y},
-                .width = 0.0 // ШИРИНA ПРЕДМЕТА ПО ТЗ
+                .width = 0.0
             });
             provider.item_infos.push_back(ProviderItemInfo{
                 .type = ProviderItemType::LOST_OBJECT,
@@ -243,7 +234,7 @@ void Application::Tick(double delta_time_seconds) {
             auto office_pos = offices[idx].GetPosition();
             provider.items.push_back(collision_detector::Item{
                 .position = {static_cast<double>(office_pos.x), static_cast<double>(office_pos.y)},
-                .width = 0.25 // половина ширины базы (0.5 / 2)
+                .width = 0.25
             });
             provider.item_infos.push_back(ProviderItemInfo{
                 .type = ProviderItemType::OFFICE,
@@ -254,7 +245,6 @@ void Application::Tick(double delta_time_seconds) {
 
         if (!provider.gatherers.empty() && !provider.items.empty()) {
             auto events = collision_detector::FindGatherEvents(provider);
-
             std::unordered_set<unsigned> collected_in_tick;
 
             for (const auto& event : events) {
@@ -293,6 +283,16 @@ void Application::Tick(double delta_time_seconds) {
     auto delta_ms = std::chrono::milliseconds(static_cast<long long>(delta_time_seconds * 1000.0));
     mutable_game.Tick(delta_ms);
 
+    for (const auto& [id, player] : player_manager_.GetPlayers()) {
+        auto dog_ptr = player->GetDog();
+        if (!dog_ptr) continue;
+
+        if (retirement_timeout > 0.0 && dog_ptr->GetIdleTime() >= retirement_timeout) {
+            players_to_retire.push_back(id);
+        }
+    }
+
+    // 5. Удаляем собранных игроков и отправляем их точные рекорды в БД
     for (uint32_t player_id : players_to_retire) {
         const auto& players = player_manager_.GetPlayers();
         if (auto it = players.find(player_id); it != players.end()) {
@@ -300,6 +300,7 @@ void Application::Tick(double delta_time_seconds) {
             auto dog = player->GetDog();
 
             if (dog) {
+                // Сигнал улетит в БД с идеально точным значением playTime
                 dog_retired_signal(dog->GetName(), dog->GetScore(), dog->GetPlayTime());
 
                 model::Map::Id map_id{player->GetMapId()};
@@ -310,7 +311,6 @@ void Application::Tick(double delta_time_seconds) {
             }
 
             player_tokens_.RemovePlayerToken(player);
-
             player_manager_.RemovePlayer(player_id);
         }
     }
