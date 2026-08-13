@@ -187,9 +187,9 @@ void Application::Tick(double delta_time_seconds) {
 
         dog_start_positions[dog_ptr->GetId().operator*()] = dog_ptr->GetPosition();
 
-        UpdateDogPosition(*dog_ptr, *map_ptr, delta_time_seconds);
-
         dog_ptr->UpdateTime(delta_time_seconds);
+
+        UpdateDogPosition(*dog_ptr, *map_ptr, delta_time_seconds);
 
         map_to_dogs[player->GetMapId()].push_back(dog_ptr);
     }
