@@ -161,8 +161,16 @@ int main(int argc, const char* argv[]) {
     std::optional<json_loader::ParsedGameData> parsed_data_opt;
     try {
         std::string final_config_path = args_opt->config_file;
-        if (!std::filesystem::exists(final_config_path) && std::filesystem::exists("src/config.json")) {
-            final_config_path = "src/config.json";
+
+        // СНАЙПЕРСКИЙ ФИКС ПУТЕЙ ДЛЯ ДОКЕРА ПРАКТИКУМА
+        // Если буст выдал дефолтный config.json, но его нет в корне,
+        // мы проверяем папку data/, куда Dockerfile копирует файлы.
+        if (!std::filesystem::exists(final_config_path)) {
+            if (std::filesystem::exists("data/config.json")) {
+                final_config_path = "data/config.json"; // Самый правильный путь внутри докера
+            } else if (std::filesystem::exists("src/config.json")) {
+                final_config_path = "src/config.json";  // Локальный путь для тестов
+            }
         }
 
         parsed_data_opt = json_loader::LoadGame(final_config_path);
