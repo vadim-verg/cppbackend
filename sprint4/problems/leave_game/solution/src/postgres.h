@@ -86,6 +86,7 @@ private:
     std::string db_url_;
     ConnectionPool pool_;
     inline static std::shared_ptr<Database> instance_ = nullptr;
+    size_t created_connections_ = 0;
 };
 
 } // namespace database

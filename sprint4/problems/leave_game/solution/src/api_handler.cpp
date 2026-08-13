@@ -403,7 +403,7 @@ http::response<http::string_body> ApiHandler::HandleGetRecords(const http::reque
     }
 
     if (max_items > 100) {
-        return MakeErrorResponse(http::status::bad_request, "badRequest", "maxItems elements count limit is 100", version);
+        return MakeErrorResponse(http::status::bad_request, "invalidArgument", "maxItems elements count limit is 100", version);
     }
 
     auto db_instance = database::Database::GetInstance();

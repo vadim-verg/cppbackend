@@ -176,10 +176,9 @@ void Application::Tick(double delta_time_seconds) {
 
     std::unordered_map<std::string, std::vector<std::shared_ptr<model::Dog>>> map_to_dogs;
     std::unordered_map<uint32_t, model::Point2D> dog_start_positions;
-
     std::vector<uint32_t> players_to_retire;
 
-    // 1. Обновляем физические позиции собак
+    // 1. Двигаем собак и фиксируем их начальные позиции для сбора лута
     for (const auto& [id, player] : player_manager_.GetPlayers()) {
         auto dog_ptr = player->GetDog();
         if (!dog_ptr) continue;
@@ -189,14 +188,17 @@ void Application::Tick(double delta_time_seconds) {
 
         dog_start_positions[dog_ptr->GetId().operator*()] = dog_ptr->GetPosition();
 
+        // Физическое перемещение и проверка на удар о стену (где скорость может стать 0)
         UpdateDogPosition(*dog_ptr, *map_ptr, delta_time_seconds);
+
+        // КРИТИЧЕСКИЙ ИСПРАВЛЕННЫЙ МОМЕНТ: Обновляем время строго после движения!
+        // Теперь время простоя при ударе о стену начнет учитываться прямо на этом тике.
+        dog_ptr->UpdateTime(delta_time_seconds);
 
         map_to_dogs[player->GetMapId()].push_back(dog_ptr);
     }
 
-    // ВНИМАНИЕ: Старый цикл проверки таймаутов отсюда полностью УДАЛЕН!
-
-    // 2. Обработка коллизий, сбор лута и начисление очков (оставляем без изменений)
+    // 2. Обработка коллизий, сбор лута и начисление очков (ваш рабочий код без изменений)
     for (const auto& [map_id_str, dogs] : map_to_dogs) {
         model::Map::Id map_id{map_id_str};
         auto map_ptr = game_.FindMap(map_id);
@@ -280,9 +282,11 @@ void Application::Tick(double delta_time_seconds) {
         }
     }
 
+    // 3. Обновляем внутреннее состояние игры (генерация нового лута)
     auto delta_ms = std::chrono::milliseconds(static_cast<long long>(delta_time_seconds * 1000.0));
     mutable_game.Tick(delta_ms);
 
+    // 4. Проверяем таймауты бездействия ПОСЛЕ всех расчетов времени
     for (const auto& [id, player] : player_manager_.GetPlayers()) {
         auto dog_ptr = player->GetDog();
         if (!dog_ptr) continue;
@@ -292,7 +296,10 @@ void Application::Tick(double delta_time_seconds) {
         }
     }
 
-    // 5. Удаляем собранных игроков и отправляем их точные рекорды в БД
+    // Флаг сохранения состояния выставляется только если кто-то ушел на пенсию
+    bool player_retired = false;
+
+    // 5. Синхронно отправляем рекорды в БД и удаляем игроков
     for (uint32_t player_id : players_to_retire) {
         const auto& players = player_manager_.GetPlayers();
         if (auto it = players.find(player_id); it != players.end()) {
@@ -300,7 +307,7 @@ void Application::Tick(double delta_time_seconds) {
             auto dog = player->GetDog();
 
             if (dog) {
-                // Сигнал улетит в БД с идеально точным значением playTime
+                // Вызов сигнала для записи в PostgreSQL через пул соединений
                 dog_retired_signal(dog->GetName(), dog->GetScore(), dog->GetPlayTime());
 
                 model::Map::Id map_id{player->GetMapId()};
@@ -312,12 +319,14 @@ void Application::Tick(double delta_time_seconds) {
 
             player_tokens_.RemovePlayerToken(player);
             player_manager_.RemovePlayer(player_id);
+            player_retired = true;
         }
     }
 
-    should_save_state_ = false;
-
-    if (state_file_ && save_state_period_) {
+    // 6. Корректное управление периодическим сохранением состояния сервера
+    if (player_retired) {
+        should_save_state_ = true;
+    } else if (state_file_ && save_state_period_) {
         time_since_last_save_ += delta_ms;
         if (time_since_last_save_ >= *save_state_period_) {
             should_save_state_ = true;

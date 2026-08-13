@@ -21,17 +21,25 @@ ConnectionPool::ConnectionPool(size_t capacity, std::string db_url)
 ConnectionPtr ConnectionPool::GetConnection() {
     std::unique_lock<std::mutex> lock(mutex_);
 
+    // Ожидаем, пока либо появится готовое соединение, либо у нас будет квота на создание нового
+    cv_.wait(lock, [this] {
+        return !pool_.empty() || created_connections_ < capacity_;
+    });
+
+    // Если очередь пуста, но мы не превысили лимит — создаем новое соединение лениво
     if (pool_.empty()) {
         try {
             auto new_conn = std::make_shared<pqxx::connection>(db_url_);
+            ++created_connections_; // Запоминаем, что создали еще одно соединение в рамках лимита
             return ConnectionPtr(std::move(new_conn), *this);
         } catch (...) {
+            // Если упало при подключении, не блокируем пул для других потоков
+            cv_.notify_one();
             throw;
         }
     }
 
-    cv_.wait(lock, [this] { return !pool_.empty(); });
-
+    // Если в очереди уже было готовое соединение, забираем его
     auto conn = pool_.front();
     pool_.pop();
     return ConnectionPtr(std::move(conn), *this);
