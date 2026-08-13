@@ -117,16 +117,16 @@ int main(int argc, const char* argv[]) {
     const char* db_url_env = std::getenv("GAME_DB_URL");
     std::string db_url = db_url_env ? std::string(db_url_env) : ""s;
 
-    // Обязательное сообщение для тестов практикума
-    std::cout << "Server started" << std::endl << std::flush;
+    if (db_url.rfind("postgres://", 0) == 0) {
+        db_url.replace(0, 11, "postgresql://");
+    }
 
     logger::InitLogger();
 
-    std::cout << "{\"message\": \"server started\", \"data\": {\"port\": 8080, \"address\": \"0.0.0.0\"}}" << std::endl;
-
     std::shared_ptr<database::Database> db = nullptr;
 
-    if (!db_url.empty() && db_url != "postgres") {
+    // Исправлено условие: проверяем строго на пустоту строки
+    if (!db_url.empty()) {
         try {
             db = std::make_shared<database::Database>(db_url, 2);
             database::Database::SetInstance(db);
@@ -156,8 +156,13 @@ int main(int argc, const char* argv[]) {
     std::optional<json_loader::ParsedGameData> parsed_data_opt;
     try {
         std::string final_config_path = args_opt->config_file;
-        if (!std::filesystem::exists(final_config_path) && std::filesystem::exists("src/config.json")) {
-            final_config_path = "src/config.json";
+
+        if (!std::filesystem::exists(final_config_path)) {
+            if (std::filesystem::exists("data/config.json")) {
+                final_config_path = "data/config.json";
+            } else if (std::filesystem::exists("src/config.json")) {
+                final_config_path = "src/config.json";
+            }
         }
 
         parsed_data_opt = json_loader::LoadGame(final_config_path);
@@ -275,6 +280,11 @@ int main(int argc, const char* argv[]) {
                 });
             });
         });
+
+        // Обязательное сообщение для тестов практикума
+        std::cout << "Server started" << std::endl << std::flush;
+
+        std::cout << "{\"message\": \"server started\", \"data\": {\"port\": 8080, \"address\": \"0.0.0.0\"}}" << std::endl;
 
         RunWorkers(num_threads, [&ioc] {
             ioc.run();

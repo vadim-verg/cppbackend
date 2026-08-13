@@ -12,7 +12,7 @@ ConnectionPtr::~ConnectionPtr() {
 ConnectionPool::ConnectionPool(size_t capacity, std::string db_url)
     : capacity_(capacity)
 {
-    if (db_url.find("postgres://") == 0) {
+    if (db_url.starts_with("postgres://")) {
         db_url.insert(8, "ql");
     }
     db_url_ = std::move(db_url);
@@ -21,16 +21,20 @@ ConnectionPool::ConnectionPool(size_t capacity, std::string db_url)
 ConnectionPtr ConnectionPool::GetConnection() {
     std::unique_lock<std::mutex> lock(mutex_);
 
+    cv_.wait(lock, [this] {
+        return !pool_.empty() || created_connections_ < capacity_;
+    });
+
     if (pool_.empty()) {
         try {
             auto new_conn = std::make_shared<pqxx::connection>(db_url_);
+            ++created_connections_;
             return ConnectionPtr(std::move(new_conn), *this);
         } catch (...) {
+            cv_.notify_one();
             throw;
         }
     }
-
-    cv_.wait(lock, [this] { return !pool_.empty(); });
 
     auto conn = pool_.front();
     pool_.pop();

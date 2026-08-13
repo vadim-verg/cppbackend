@@ -118,7 +118,7 @@ ParsedGameData LoadGame(const std::filesystem::path& json_path) {
         double period = GetDoubleValue(gen_config.at("period"));
         double probability = GetDoubleValue(gen_config.at("probability"));
 
-        auto period_ms = std::chrono::milliseconds(static_cast<long long>(period * 1000.0));
+        auto period_ms = std::chrono::milliseconds(static_cast<int64_t>(period * 1000.0));
         game.SetLootGeneratorConfig(period_ms, probability);
     }
 

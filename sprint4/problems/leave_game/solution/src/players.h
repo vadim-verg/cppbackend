@@ -54,11 +54,13 @@ public:
 
     // Удалить токен игрока, когда он уходит на покой
     void RemovePlayerToken(const std::shared_ptr<Player>& player) {
-        for (auto it = token_to_player_.begin(); it != token_to_player_.end(); ++it) {
-            if (it->second == player) {
-                token_to_player_.erase(it);
-                break;
-            }
+        auto it = std::find_if(token_to_player_.begin(), token_to_player_.end(),
+                               [&player](const auto& pair) {
+                                   return pair.second == player;
+                               });
+
+        if (it != token_to_player_.end()) {
+            token_to_player_.erase(it);
         }
     }
 
@@ -186,7 +188,7 @@ private:
         double max_y;
     };
 
-    RoadBounds GetRoadBounds(const model::Road& road) const;
+    static RoadBounds GetRoadBounds(const model::Road& road);
     bool IsPointOnRoad(const model::Point2D& pos, const RoadBounds& bounds) const;
     void UpdateDogPosition(model::Dog& dog, const model::Map& map, double delta_time_seconds);
 

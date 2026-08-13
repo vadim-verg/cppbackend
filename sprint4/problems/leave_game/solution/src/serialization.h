@@ -51,29 +51,30 @@ public:
         , score_(dog.GetScore())
         , bag_capacity_(dog.GetBagCapacity())
         , bag_(dog.GetBag())
-        // Фиксируем новые временные метки из ТЗ
+        // Фиксируем новые временные метки
         , play_time_(dog.GetPlayTime())
         , idle_time_(dog.GetIdleTime())
         , is_idle_started_(dog.IsIdleStarted()) {}
 
     [[nodiscard]] model::Dog Restore() const {
-        model::Dog dog{id_, name_, pos_};
-        dog.SetSpeed(speed_);
-        dog.SetDirection(direction_);
-        dog.SetBagCapacity(bag_capacity_);
-        dog.AddScore(score_);
-        for (const auto& item : bag_) {
-            if (!dog.AddToBag(item)) {
-                throw std::runtime_error("Failed to restore dog bag content");
-            }
-        }
-        // Восстанавливаем временное состояние пса по ТЗ
-        dog.SetPlayTime(play_time_);
-        dog.SetIdleTime(idle_time_);
-        dog.SetIdleStarted(is_idle_started_);
+    model::Dog dog{id_, name_, pos_};
+    dog.SetSpeed(speed_);
+    dog.SetDirection(direction_);
+    dog.SetBagCapacity(bag_capacity_);
+    dog.AddScore(score_);
 
-        return dog;
+    if (std::any_of(bag_.begin(), bag_.end(), [&dog](const auto& item) {
+        return !dog.AddToBag(item);
+    })) {
+        throw std::runtime_error("Failed to restore dog bag content");
     }
+
+    dog.SetPlayTime(play_time_);
+    dog.SetIdleTime(idle_time_);
+    dog.SetIdleStarted(is_idle_started_);
+
+    return dog;
+}
 
     template <typename Archive>
     void serialize(Archive& ar, [[maybe_unused]] const unsigned version) {

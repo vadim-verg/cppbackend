@@ -119,10 +119,12 @@ bool Application::MovePlayer(const std::string& token, const std::string& move_c
         return false;
     }
 
+    dog_ptr->ResetIdleTime();
+
     return true;
 }
 
-Application::RoadBounds Application::GetRoadBounds(const model::Road& road) const {
+Application::RoadBounds Application::GetRoadBounds(const model::Road& road) {
     constexpr double half_width = 0.4;
     double x0 = static_cast<double>(road.GetStart().x);
     double y0 = static_cast<double>(road.GetStart().y);
@@ -174,7 +176,6 @@ void Application::Tick(double delta_time_seconds) {
 
     std::unordered_map<std::string, std::vector<std::shared_ptr<model::Dog>>> map_to_dogs;
     std::unordered_map<uint32_t, model::Point2D> dog_start_positions;
-
     std::vector<uint32_t> players_to_retire;
 
     for (const auto& [id, player] : player_manager_.GetPlayers()) {
@@ -188,18 +189,9 @@ void Application::Tick(double delta_time_seconds) {
 
         UpdateDogPosition(*dog_ptr, *map_ptr, delta_time_seconds);
 
-        map_to_dogs[player->GetMapId()].push_back(dog_ptr);
-    }
-
-    for (const auto& [id, player] : player_manager_.GetPlayers()) {
-        auto dog_ptr = player->GetDog();
-        if (!dog_ptr) continue;
-
         dog_ptr->UpdateTime(delta_time_seconds);
 
-        if (retirement_timeout > 0.0 && dog_ptr->GetIdleTime() >= retirement_timeout) {
-            players_to_retire.push_back(id);
-        }
+        map_to_dogs[player->GetMapId()].push_back(dog_ptr);
     }
 
     for (const auto& [map_id_str, dogs] : map_to_dogs) {
@@ -216,7 +208,7 @@ void Application::Tick(double delta_time_seconds) {
             provider.gatherers.push_back(collision_detector::Gatherer{
                 .start_pos = {start_pos.x, start_pos.y},
                 .end_pos = {end_pos.x, end_pos.y},
-                .width = 0.3 // половина ширины игрока (0.6 / 2)
+                .width = 0.3
             });
             provider.dog_ptrs.push_back(dog_ptr);
         }
@@ -225,7 +217,7 @@ void Application::Tick(double delta_time_seconds) {
         for (const auto& [obj_id, obj] : lost_objects) {
             provider.items.push_back(collision_detector::Item{
                 .position = {obj.pos.x, obj.pos.y},
-                .width = 0.0 // ШИРИНA ПРЕДМЕТА ПО ТЗ
+                .width = 0.0
             });
             provider.item_infos.push_back(ProviderItemInfo{
                 .type = ProviderItemType::LOST_OBJECT,
@@ -239,7 +231,7 @@ void Application::Tick(double delta_time_seconds) {
             auto office_pos = offices[idx].GetPosition();
             provider.items.push_back(collision_detector::Item{
                 .position = {static_cast<double>(office_pos.x), static_cast<double>(office_pos.y)},
-                .width = 0.25 // половина ширины базы (0.5 / 2)
+                .width = 0.25
             });
             provider.item_infos.push_back(ProviderItemInfo{
                 .type = ProviderItemType::OFFICE,
@@ -250,7 +242,6 @@ void Application::Tick(double delta_time_seconds) {
 
         if (!provider.gatherers.empty() && !provider.items.empty()) {
             auto events = collision_detector::FindGatherEvents(provider);
-
             std::unordered_set<unsigned> collected_in_tick;
 
             for (const auto& event : events) {
@@ -286,8 +277,19 @@ void Application::Tick(double delta_time_seconds) {
         }
     }
 
-    auto delta_ms = std::chrono::milliseconds(static_cast<long long>(delta_time_seconds * 1000.0));
+    auto delta_ms = std::chrono::milliseconds(static_cast<uint64_t>(delta_time_seconds * 1000.0));
     mutable_game.Tick(delta_ms);
+
+    for (const auto& [id, player] : player_manager_.GetPlayers()) {
+        auto dog_ptr = player->GetDog();
+        if (!dog_ptr) continue;
+
+        if (retirement_timeout > 0.0 && dog_ptr->GetIdleTime() >= retirement_timeout) {
+            players_to_retire.push_back(id);
+        }
+    }
+
+    bool player_retired = false;
 
     for (uint32_t player_id : players_to_retire) {
         const auto& players = player_manager_.GetPlayers();
@@ -296,6 +298,7 @@ void Application::Tick(double delta_time_seconds) {
             auto dog = player->GetDog();
 
             if (dog) {
+                // Вызов сигнала для записи в PostgreSQL через пул соединений
                 dog_retired_signal(dog->GetName(), dog->GetScore(), dog->GetPlayTime());
 
                 model::Map::Id map_id{player->GetMapId()};
@@ -306,14 +309,14 @@ void Application::Tick(double delta_time_seconds) {
             }
 
             player_tokens_.RemovePlayerToken(player);
-
             player_manager_.RemovePlayer(player_id);
+            player_retired = true;
         }
     }
 
-    should_save_state_ = false;
-
-    if (state_file_ && save_state_period_) {
+    if (player_retired) {
+        should_save_state_ = true;
+    } else if (state_file_ && save_state_period_) {
         time_since_last_save_ += delta_ms;
         if (time_since_last_save_ >= *save_state_period_) {
             should_save_state_ = true;
